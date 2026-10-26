@@ -47,6 +47,8 @@ pub struct Dialog {
     focus_initialized: bool,
     /// Save/Don't Save answer on release, before quitting can move focus to another viewport.
     save_changes_armed: Option<Key>,
+    /// A chosen answer waits for every Y/N key to be up before this window can close.
+    save_changes_pending: Option<crate::SaveAnswer>,
     /// The formula box that takes references clicked or dragged on the grid (New Formatting Rule).
     pick: Option<RefPick>,
 }
@@ -74,6 +76,14 @@ struct RefPick {
 impl Dialog {
     pub fn name(&self) -> &str {
         &self.name
+    }
+
+    /// Input can lose focus during a font-gated pass that never draws the dialog.
+    pub(crate) fn cancel_unfocused_save_changes(&mut self, ctx: &egui::Context) {
+        if self.name == "saveChanges" && !ctx.input(save_changes_focused) {
+            self.save_changes_armed = None;
+            self.save_changes_pending = None;
+        }
     }
 
     /// Sets a form value. In Zoom, a Magnification choice is also the percentage `view.zoom`
@@ -160,6 +170,7 @@ impl Dialog {
             back: None,
             focus_initialized: false,
             save_changes_armed: None,
+            save_changes_pending: None,
             pick: None,
         }
     }
@@ -182,6 +193,7 @@ impl Dialog {
             back: None,
             focus_initialized: false,
             save_changes_armed: None,
+            save_changes_pending: None,
             pick: None,
         }
     }
@@ -1459,7 +1471,11 @@ pub fn show(app: &mut SheetApp, ctx: &egui::Context) {
                 "saveChanges" => {
                     ui.label(format!("Do you want to save the changes you made to {}?", d.values.get("title").and_then(Json::as_str).unwrap_or("this workbook")));
                     let quitting = d.values.get("quit").and_then(Json::as_bool) == Some(true);
-                    let mut answer = save_changes_shortcut(&mut d, ui.ctx());
+                    let (focused, held) = ui.input(|i| (
+                        save_changes_focused(i),
+                        i.key_down(Key::Y) || i.key_down(Key::N),
+                    ));
+                    let mut answer = save_changes_shortcut(&mut d, ui.ctx(), focused);
                     ui.horizontal(|ui| {
                         for (label, choice) in
                             [("Don't Save", crate::SaveAnswer::DontSave), ("Cancel", crate::SaveAnswer::Cancel), ("Save", crate::SaveAnswer::Save)]
@@ -1469,7 +1485,15 @@ pub fn show(app: &mut SheetApp, ctx: &egui::Context) {
                             }
                         }
                     });
-                    if let Some(answer) = answer
+                    if focused && let Some(answer) = answer {
+                        d.save_changes_pending = Some(answer);
+                        d.save_changes_armed = None;
+                    }
+                    // A mouse click or another answer key must not move a still-held gesture
+                    // into the next native window. Cancel never advances and stays immediate.
+                    if focused
+                        && (!held || d.save_changes_pending == Some(crate::SaveAnswer::Cancel))
+                        && let Some(answer) = d.save_changes_pending.take()
                         && app.answer_save_changes(answer, quitting, ui.ctx())
                     {
                         open = false;
@@ -1583,14 +1607,17 @@ pub fn show(app: &mut SheetApp, ctx: &egui::Context) {
     }
 }
 
-fn save_changes_shortcut(d: &mut Dialog, ctx: &egui::Context) -> Option<crate::SaveAnswer> {
+fn save_changes_focused(input: &egui::InputState) -> bool {
+    // Windows can synthesize releases before focus loss; judge the whole batch.
+    input.focused && !input.events.iter().any(|event| matches!(event, egui::Event::WindowFocused(false)))
+}
+
+fn save_changes_shortcut(d: &mut Dialog, ctx: &egui::Context, focused: bool) -> Option<crate::SaveAnswer> {
     let mut answer = None;
     ctx.input_mut(|i| {
-        // Windows can synthesize key releases before its focus-loss event. Even if focus
-        // returns in this batch, those releases must not answer the question.
-        let focused = i.focused && !i.events.iter().any(|event| matches!(event, egui::Event::WindowFocused(false)));
         if !focused {
             d.save_changes_armed = None;
+            d.save_changes_pending = None;
         }
         i.events.retain(|event| {
             match event {

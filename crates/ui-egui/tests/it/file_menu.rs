@@ -444,6 +444,75 @@ fn save_changes_shortcuts_ignore_releases_from_focus_loss() {
 }
 
 #[test]
+fn save_changes_cancel_overrides_a_mixed_answer_without_waiting_for_the_held_key() {
+    let dir = std::env::temp_dir().join(format!("gridcraft-mixed-cancel-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join("Book.xlsx");
+    let mut h = harness(Services::default());
+    h.state_mut().run("file.save", serde_json::json!({"path": path})).unwrap();
+    h.state_mut().run("cell.set", serde_json::json!({"cell": "A1", "input": "42"})).unwrap();
+    let uid = h.state().session.doc().unwrap().uid;
+    request_window_close(&mut h);
+    h.key_down(egui::Key::N);
+    h.run_steps(1);
+    h.key_press(egui::Key::Y);
+    h.run_steps(2);
+    assert_eq!(h.state().session.doc().unwrap().uid, uid, "Save must wait for held N to end");
+    h.key_press(egui::Key::Escape);
+    let sent = step_commands(&mut h);
+    assert!(!sent.contains(&egui::ViewportCommand::Close));
+    assert!(h.state().dialog.is_none(), "Esc cancels immediately, even with N held");
+    h.key_up(egui::Key::N);
+    step_commands(&mut h);
+    assert_eq!(h.state().session.doc().unwrap().uid, uid);
+    assert!(h.state().session.doc().unwrap().is_dirty());
+    let (on_disk, _) = gridcraft_engine::io::open_bytes("Book.xlsx", &std::fs::read(&path).unwrap()).unwrap();
+    assert_eq!(on_disk.active().unwrap().value(CellRef::new(0, 0)), Value::Empty, "the cancelled pending Save must never run");
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
+fn save_changes_focus_loss_cancels_a_pending_answer_even_when_the_ui_cannot_paint() {
+    use std::sync::atomic::{AtomicBool, Ordering};
+
+    let pause = Arc::new(AtomicBool::new(false));
+    let capture = pause.clone();
+    let mut h = crate::common::builder().with_size(egui::vec2(1200.0, 800.0)).build_ui_state(
+        move |ui, app: &mut SheetApp| {
+            let ctx = ui.ctx().clone();
+            app.logic(&ctx);
+            // A font rebind can prevent this input pass from drawing any widgets.
+            if capture.swap(false, Ordering::Relaxed) {
+                app.fonts_ready = false;
+            }
+            app.ui(ui);
+        },
+        crate::common::prepare(SheetApp::new(crate::support::blank_session(), Services::default())),
+    );
+    h.run_steps(4);
+    h.state_mut().run("cell.set", serde_json::json!({"cell": "A1", "input": "42"})).unwrap();
+    let uid = h.state().session.doc().unwrap().uid;
+    request_window_close(&mut h);
+    h.key_down(egui::Key::Y);
+    h.run_steps(1);
+    h.key_press(egui::Key::N);
+    h.run_steps(2);
+    pause.store(true, Ordering::Relaxed);
+    h.input_mut().focused = false;
+    h.input_mut().events.push(egui::Event::WindowFocused(false));
+    h.step();
+    h.input_mut().focused = true;
+    h.input_mut().events.push(egui::Event::WindowFocused(true));
+    h.run_steps(3);
+    assert_eq!(h.state().session.doc().unwrap().uid, uid, "a skipped UI pass must not replay the pending discard");
+    assert!(h.state().session.doc().unwrap().is_dirty());
+    assert_eq!(h.state().dialog.as_ref().map(|d| d.name()), Some("saveChanges"));
+    h.key_press(egui::Key::N);
+    let sent = step_commands(&mut h);
+    assert!(sent.contains(&egui::ViewportCommand::Close), "a fresh answer still works after the missed release");
+}
+
+#[test]
 fn save_changes_shortcuts_keep_unsaved_work_after_picker_cancel_or_save_failure() {
     for fail in [false, true] {
         let dir = std::env::temp_dir().join(format!("gridcraft-close-y-failure-{}.xlsx", std::process::id()));
