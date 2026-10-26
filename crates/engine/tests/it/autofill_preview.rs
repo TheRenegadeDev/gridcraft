@@ -69,3 +69,15 @@ fn preview_bounds_work_by_source_lane_instead_of_drag_distance() {
     assert!(preview_cell(wb, 0, src, src, src.start, FillMode::Series).is_none());
     assert!(preview_cell(wb, 0, RangeRef::parse("A1:F2").unwrap(), RangeRef::parse("A1:F1048576").unwrap(), at, FillMode::Series).is_none());
 }
+
+#[test]
+fn preview_rejects_rectangles_that_the_fill_command_refuses() {
+    let mut s = Session::new();
+    s.new_workbook();
+    s.execute("cell.set", serde_json::json!({"cell": "A1", "input": "5"})).unwrap();
+    for (source, target, at) in [("A1:E1", "A1:E1000001", "A1000001"), ("A1:XFD400", "A1:XFD401", "A401")] {
+        let (src, target_range, at) = (RangeRef::parse(source).unwrap(), RangeRef::parse(target).unwrap(), CellRef::parse(at).unwrap());
+        assert!(preview_cell(&s.doc().unwrap().wb, 0, src, target_range, at, FillMode::Series).is_none(), "{source} -> {target}");
+        assert!(s.execute("edit.autoFill", serde_json::json!({"source": source, "target": target})).is_err());
+    }
+}

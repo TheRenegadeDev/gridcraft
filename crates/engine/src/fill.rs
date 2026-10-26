@@ -185,9 +185,14 @@ impl FillLane {
 /// Predict one destination cell using the committed fill's patterns and formula adjustment.
 /// No workbook, calculation, revision or history state is changed. Work depends only on one
 /// source lane (at most 4,096 cells), never on the distance dragged or number of target cells.
-/// Oversized sources and fills refused by the command have no preview.
+/// Oversized sources and ranges beyond the fill command's size limit have no preview.
 pub fn preview_cell(wb: &Workbook, sheet: usize, src: RangeRef, target: RangeRef, at: CellRef, mode: FillMode) -> Option<Cell> {
-    if !holds_source_in_corner(src, target) || !target.contains(at) || src.contains(at) {
+    if src.count() > MAX_FILL_CELLS
+        || target.count() > MAX_FILL_CELLS
+        || !holds_source_in_corner(src, target)
+        || !target.contains(at)
+        || src.contains(at)
+    {
         return None;
     }
     let FillShape { vertical, forward, lane_count, steps } = FillShape::new(src, target);

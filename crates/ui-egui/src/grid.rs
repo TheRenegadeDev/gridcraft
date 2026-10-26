@@ -2854,11 +2854,15 @@ fn fill_value_preview(app: &SheetApp, ui: &egui::Ui, geo: &Geo, sh: &Sheet) {
     let at = CellRef::new(pc.row.clamp(target.start.row, target.end.row), pc.col.clamp(target.start.col, target.end.col));
     let mode = if ui.input(|i| i.modifiers.command) { gridcraft_engine::fill::FillMode::Alternate } else { gridcraft_engine::fill::FillMode::Series };
     let Some(cell) = gridcraft_engine::fill::preview_cell(&doc.wb, doc.wb.active_sheet(), doc.selection.current(), target, at, mode) else { return };
+    let style = doc.wb.styles.get(cell.style);
     // Recalculation is deferred until release; show the shifted formula itself.
     let text = if cell.formula.is_some() {
-        cell.input_text()
+        if style.protection.hidden && sh.is_protected() {
+            return;
+        }
+        crate::formula_locale::display(&cell.input_text(), app.ui.language.formula_locale(), &doc.wb, doc.wb.active_sheet())
     } else {
-        gridcraft_engine::display::value_text_as(&doc.wb, &cell.value, doc.wb.styles.get(cell.style).num_fmt.as_str())
+        gridcraft_engine::display::value_text_as(&doc.wb, &cell.value, style.num_fmt.as_str())
     };
     if text.is_empty() {
         return;

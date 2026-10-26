@@ -203,6 +203,56 @@ fn fill_preview_follows_direction_format_and_copy_modifier() {
 }
 
 #[test]
+fn fill_preview_keeps_protected_formulas_hidden() {
+    for (protected, hidden, target_unlocked) in [(true, true, true), (true, true, false), (false, true, true), (true, false, true)] {
+        let mut h = harness(|s| {
+            s.execute("cell.set", json!({"cell": "B1", "input": "=A1*1.17"})).unwrap();
+            s.execute("home.formatCells", json!({"range": "B1", "style": {"protection": {"hidden": hidden}}})).unwrap();
+            if target_unlocked {
+                s.execute("home.formatCells", json!({"range": "B2:B4", "style": {"protection": {"locked": false}}})).unwrap();
+            }
+            s.execute("selection.set", json!({"cell": "B1"})).unwrap();
+            if protected {
+                s.execute("review.protectSheet", json!({})).unwrap();
+            }
+        });
+        let (start, end) = (corner(&h, "B1"), center(&h, "B4"));
+        press(&mut h, start, PointerButton::Primary);
+        move_to(&mut h, start, end);
+        h.run_steps(3);
+        assert_eq!(
+            h.query_by_label("=A4*1.17").is_some(),
+            !(protected && hidden),
+            "protected={protected}, hidden={hidden}, target_unlocked={target_unlocked}"
+        );
+        if !protected || target_unlocked {
+            release(&mut h, end, PointerButton::Primary);
+            let d = h.state().session.active().unwrap();
+            let sh = d.wb.active().unwrap();
+            assert_eq!(sh.input_text(CellRef::parse("B4").unwrap()), "=A4*1.17");
+            assert_eq!(gridcraft_engine::display::formula_hidden(&d.wb, sh, CellRef::parse("B4").unwrap()), protected && hidden);
+        }
+    }
+}
+
+#[test]
+fn formula_fill_preview_uses_the_selected_formula_language() {
+    let mut h = harness(|s| {
+        s.execute("cell.set", json!({"cell": "B1", "input": "=SUM(A1,1.5)"})).unwrap();
+        s.execute("selection.set", json!({"cell": "B1"})).unwrap();
+    });
+    h.state_mut().run("app.language.set", json!({"language": "es"})).unwrap();
+    h.run_steps(3);
+    let (start, end) = (corner(&h, "B1"), center(&h, "B4"));
+    press(&mut h, start, PointerButton::Primary);
+    move_to(&mut h, start, end);
+    h.run_steps(3);
+    assert!(h.query_by_label("=SUMA(A4;1,5)").is_some());
+    release(&mut h, end, PointerButton::Primary);
+    assert_eq!(h.state().session.active().unwrap().wb.active().unwrap().input_text(CellRef::parse("B4").unwrap()), "=SUM(A4,1.5)");
+}
+
+#[test]
 fn left_drag_shows_the_auto_fill_options_button() {
     let mut h = harness(one_two);
     assert!(h.query_by_label("Auto Fill Options").is_none());
