@@ -1,6 +1,6 @@
 # UI parity
 
-> **Last reviewed:** 2026-10-10 · **Last updated:** 2026-10-25 · **Change:** minor (AutoSum over a selected row puts its total to the right) · **Target:** Microsoft Excel (Microsoft 365), Excel for Mac 16.113.4
+> **Last reviewed:** 2026-10-10 · **Last updated:** 2026-10-26 · **Change:** minor (single-key answers in Save Changes) · **Target:** Microsoft Excel (Microsoft 365), Excel for Mac 16.113.4
 
 Interaction, controls and feel, against Excel. Part of [target-app-parity.md](target-app-parity.md).
 **UI/UX fidelity: ~55% ready, 50–80 h** (estimated). Ribbon command coverage is measured
@@ -104,6 +104,7 @@ otherwise. Number-format and border keys match the physical key (Ctrl+Shift+4, w
 |---|---|---|---|
 | Ctrl+C / X / V, Ctrl+Z / Y, Ctrl+A, Ctrl+B / I / U | same with Cmd | clipboard, undo/redo, select all, bold/italic/underline | present |
 | Ctrl+S, Ctrl+Shift+S, Ctrl+O, Ctrl+N, Ctrl+W | Cmd | save, save as, open, new, close | present |
+| Y / N / Esc in Save Changes | same | Save / Don't Save / Cancel | added (#2572); Y/N require no modifiers and answer on release so holding a key cannot answer successive workbooks; focus loss cancels the gesture; a cancelled or failed save keeps the workbook open |
 | Ctrl+F, Ctrl+H, Ctrl+G, Ctrl+K, Ctrl+T | Cmd (Ctrl+H) | find, replace, go to, hyperlink, table | present |
 | Ctrl+D, Ctrl+R, Ctrl+E, Ctrl+1, Ctrl+9 / 0, Ctrl+Shift+9 / 0 | Cmd (Ctrl+E on Mac: see below) | fill down/right, Flash Fill, Format Cells, hide/unhide | present |
 | Ctrl+- , Ctrl+Shift+= | Cmd | Delete / Insert cells dialog | present |
@@ -187,6 +188,7 @@ scrollbar bugs 2–4 · pixel/feel pass against observed Excel 7–12.
 
 | Date | Change | Summary |
 |---|---|---|
+| 2026-10-26 | minor | Save Changes accepts unmodified Y (Save) and N (Don't Save) on release through the existing button actions; Esc still cancels. Held keys cannot answer successive workbooks, and focus loss cancels the gesture; cancelling Save As or a failed save keeps the workbook open (#2572) |
 | 2026-10-25 | minor | AutoSum (Alt+=, Home › AutoSum) over a selected row puts its total to the right of the row, or in its last cell when that is empty, as in Excel; it wrote a one-cell total under each cell. A selection's empty last column takes each row's total and its empty last row each column's, with the block's total in the corner when both are empty |
 | 2026-10-25 | minor | Paste Name lays out only the names in view, so a workbook with thousands of names opens it at once; the arrow keys still scroll the chosen name into view. Go To matches a `Sheet2!Name` reference and hides a workbook name behind the active sheet's own name in any case and script (`Größe` = `GRÖSSE`), as formulas do. The two Page Layout view rows are one; the 0.7 in side margin used when Align with Page Margins is off is marked unverified |
 | 2026-10-24 | minor | Go To lists the named ranges on every sheet, as Excel's does ("The Go to popup window shows named ranges on every worksheet in your workbook"): a name scoped to another sheet appears as `Sheet2!Name`, and hidden names, constants and formulas are left out. It keeps the references entered (newest first, ten at most), and a double-click on an entry goes there. The Reference box and `edit.goTo` take several names or references separated by commas (`Price, Type`, `B14:C22,F19:G30,H21:H29`) and select them all; `edit.goTo {list: true}` returns the list |

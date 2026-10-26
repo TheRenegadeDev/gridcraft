@@ -45,6 +45,8 @@ pub struct Dialog {
     /// The dialog this one was opened from (Name Manager › New…): it comes back when this closes.
     back: Option<Box<Dialog>>,
     focus_initialized: bool,
+    /// Save/Don't Save answer on release, before quitting can move focus to another viewport.
+    save_changes_armed: Option<Key>,
     /// The formula box that takes references clicked or dragged on the grid (New Formatting Rule).
     pick: Option<RefPick>,
 }
@@ -157,6 +159,7 @@ impl Dialog {
             picture_target: None,
             back: None,
             focus_initialized: false,
+            save_changes_armed: None,
             pick: None,
         }
     }
@@ -178,6 +181,7 @@ impl Dialog {
             picture_target: None,
             back: None,
             focus_initialized: false,
+            save_changes_armed: None,
             pick: None,
         }
     }
@@ -1455,15 +1459,21 @@ pub fn show(app: &mut SheetApp, ctx: &egui::Context) {
                 "saveChanges" => {
                     ui.label(format!("Do you want to save the changes you made to {}?", d.values.get("title").and_then(Json::as_str).unwrap_or("this workbook")));
                     let quitting = d.values.get("quit").and_then(Json::as_bool) == Some(true);
+                    let mut answer = save_changes_shortcut(&mut d, ui.ctx());
                     ui.horizontal(|ui| {
-                        for (label, answer) in
+                        for (label, choice) in
                             [("Don't Save", crate::SaveAnswer::DontSave), ("Cancel", crate::SaveAnswer::Cancel), ("Save", crate::SaveAnswer::Save)]
                         {
-                            if ui.button(label).clicked() && app.answer_save_changes(answer, quitting, ui.ctx()) {
-                                open = false;
+                            if ui.button(label).clicked() {
+                                answer = Some(choice);
                             }
                         }
                     });
+                    if let Some(answer) = answer
+                        && app.answer_save_changes(answer, quitting, ui.ctx())
+                    {
+                        open = false;
+                    }
                 }
                 "start" => {
                     ui.heading("Start a new workbook");
@@ -1571,6 +1581,42 @@ pub fn show(app: &mut SheetApp, ctx: &egui::Context) {
     } else if let Some(back) = d.back.take() {
         app.dialog = Some(*back);
     }
+}
+
+fn save_changes_shortcut(d: &mut Dialog, ctx: &egui::Context) -> Option<crate::SaveAnswer> {
+    let mut answer = None;
+    ctx.input_mut(|i| {
+        // Windows can synthesize key releases before its focus-loss event. Even if focus
+        // returns in this batch, those releases must not answer the question.
+        let focused = i.focused && !i.events.iter().any(|event| matches!(event, egui::Event::WindowFocused(false)));
+        if !focused {
+            d.save_changes_armed = None;
+        }
+        i.events.retain(|event| {
+            match event {
+                egui::Event::Key { key, pressed, repeat, modifiers, .. } => {
+                    if matches!(key, Key::Y | Key::N) {
+                        if *pressed {
+                            if !repeat {
+                                d.save_changes_armed = (focused && modifiers.is_none()).then_some(*key);
+                            }
+                        } else if d.save_changes_armed.take() == Some(*key) && focused && modifiers.is_none() {
+                            answer.get_or_insert(if *key == Key::Y { crate::SaveAnswer::Save } else { crate::SaveAnswer::DontSave });
+                        }
+                    } else if *key == Key::Escape && *pressed && !repeat && focused && modifiers.is_none() {
+                        answer.get_or_insert(crate::SaveAnswer::Cancel);
+                    }
+                    // Consume the whole answer gesture, including repeats, before another
+                    // workbook's question can be drawn in this frame.
+                    return !modifiers.is_none() || !matches!(key, Key::Y | Key::N | Key::Escape);
+                }
+                egui::Event::Text(text) if matches!(text.as_str(), "y" | "Y" | "n" | "N") => return false,
+                _ => {}
+            }
+            true
+        });
+    });
+    answer
 }
 
 /// Paste Special as Excel lays it out: Paste and Operation each in two columns of options, Skip

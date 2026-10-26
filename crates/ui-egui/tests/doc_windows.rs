@@ -16,6 +16,8 @@ use serde_json::json;
 thread_local! {
     /// Each viewport's input for the next frame (focus, close button).
     static INFOS: RefCell<egui::ViewportIdMap<ViewportInfo>> = RefCell::new(egui::ViewportIdMap::default());
+    /// Keyboard input belongs to one native viewport, as it does in eframe.
+    static KEYS: RefCell<egui::ViewportIdMap<Vec<egui::Event>>> = RefCell::new(egui::ViewportIdMap::default());
     /// The viewport commands the app sent this frame.
     static SENT: RefCell<Vec<(ViewportId, ViewportCommand)>> = const { RefCell::new(Vec::new()) };
 }
@@ -39,12 +41,14 @@ struct Desk {
 impl Desk {
     fn new(quit_with_last_window: bool) -> Desk {
         INFOS.with(|i| i.borrow_mut().clear());
+        KEYS.with(|i| i.borrow_mut().clear());
         let ctx = Context::default();
         ctx.set_embed_viewports(false);
         Context::set_immediate_viewport_renderer(|ctx, viewport| {
             let id = viewport.ids.this;
             let mut input = RawInput { viewport_id: id, ..RawInput::default() };
             input.viewports = INFOS.with(|i| i.borrow().clone());
+            input.events = KEYS.with(|i| i.borrow_mut().remove(&id).unwrap_or_default());
             input.viewports.entry(id).or_default().parent = Some(viewport.ids.parent);
             let mut cb = viewport.viewport_ui_cb;
             record(ctx.run_ui(input, |ui| cb(ui)));
@@ -64,6 +68,7 @@ impl Desk {
         SENT.with(|s| s.borrow_mut().clear());
         let mut input = RawInput { viewport_id: ViewportId::ROOT, ..RawInput::default() };
         input.viewports = INFOS.with(|i| i.borrow().clone());
+        input.events = KEYS.with(|i| i.borrow_mut().remove(&ViewportId::ROOT).unwrap_or_default());
         input.viewports.entry(ViewportId::ROOT).or_default();
         let Desk { ctx, app, windows } = self;
         let mut act = Some(act);
@@ -84,6 +89,20 @@ impl Desk {
 
     fn frames(&mut self, n: usize) -> Vec<(ViewportId, ViewportCommand)> {
         (0..n).flat_map(|_| self.frame_with(|_, _| {})).collect()
+    }
+
+    fn answer_key(&mut self, window: u64, key: egui::Key, pressed: bool) -> Vec<(ViewportId, ViewportCommand)> {
+        let vp = self.viewport(window);
+        KEYS.with(|i| {
+            i.borrow_mut().entry(vp).or_default().push(egui::Event::Key {
+                key,
+                physical_key: None,
+                pressed,
+                repeat: false,
+                modifiers: egui::Modifiers::NONE,
+            })
+        });
+        self.frames(3)
     }
 
     fn viewport(&self, window: u64) -> ViewportId {
@@ -119,6 +138,74 @@ impl Desk {
 
 fn sent_to(sent: &[(ViewportId, ViewportCommand)], vp: ViewportId, cmd: &ViewportCommand) -> bool {
     sent.iter().any(|(id, c)| *id == vp && c == cmd)
+}
+
+#[test]
+fn held_n_discards_only_one_workbook_when_quit_moves_to_another_native_viewport() {
+    let mut desk = Desk::new(true);
+    // Keep the clean root window, so the two dirty workbooks have distinct child viewports.
+    for _ in 0..2 {
+        desk.app.run("file.new", json!({})).unwrap();
+        desk.app.run("cell.set", json!({"cell": "A1", "input": "42"})).unwrap();
+    }
+    desk.frames(3);
+    let (w2, w3) = (desk.window_of(1), desk.window_of(2));
+    assert_ne!(desk.viewport(w2), desk.viewport(w3));
+    desk.frame_with(|app, ctx| app.request_quit(ctx));
+    desk.frames(3);
+    for _ in 0..3 {
+        desk.answer_key(w2, egui::Key::N, true);
+        assert_eq!(desk.app.session.documents().len(), 3, "holding N does not close a window");
+    }
+    desk.answer_key(w2, egui::Key::N, false);
+    assert_eq!(desk.app.session.documents().len(), 2, "release discards the first dirty workbook");
+    assert_eq!(desk.app.session.active_window(), Some(w3));
+    assert_eq!(desk.app.dialog.as_ref().map(|d| d.name()), Some("saveChanges"));
+    desk.answer_key(w3, egui::Key::N, false);
+    assert_eq!(desk.app.session.documents().len(), 2, "a stray release cannot answer the next question");
+    desk.answer_key(w3, egui::Key::N, true);
+    let sent = desk.answer_key(w3, egui::Key::N, false);
+    assert_eq!(desk.app.session.documents().len(), 1);
+    assert!(sent_to(&sent, ViewportId::ROOT, &ViewportCommand::Close));
+}
+
+#[test]
+fn held_y_saves_only_one_workbook_when_quit_moves_to_another_native_viewport() {
+    let dir = std::env::temp_dir().join(format!("gridcraft-native-held-y-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let paths = [dir.join("First.xlsx"), dir.join("Second.xlsx")];
+    let mut desk = Desk::new(true);
+    // Both dirty child windows have a file, so Y can save without a picker.
+    for path in &paths {
+        desk.app.run("file.new", json!({})).unwrap();
+        desk.app.run("file.save", json!({"path": path})).unwrap();
+        desk.app.run("cell.set", json!({"cell": "A1", "input": "42"})).unwrap();
+    }
+    desk.frames(3);
+    let (w2, w3) = (desk.window_of(1), desk.window_of(2));
+    assert_ne!(desk.viewport(w2), desk.viewport(w3));
+    desk.frame_with(|app, ctx| app.request_quit(ctx));
+    desk.frames(3);
+    for _ in 0..3 {
+        desk.answer_key(w2, egui::Key::Y, true);
+        assert_eq!(desk.app.session.documents().len(), 3, "holding Y must not advance to another window");
+    }
+    desk.answer_key(w2, egui::Key::Y, false);
+    assert_eq!(desk.app.session.documents().len(), 2);
+    assert_eq!(desk.app.session.active_window(), Some(w3));
+    assert!(desk.app.session.doc().unwrap().is_dirty(), "the second workbook has not been saved");
+    let (saved, _) = gridcraft_engine::io::open_bytes("First.xlsx", &std::fs::read(&paths[0]).unwrap()).unwrap();
+    assert_eq!(saved.active().unwrap().value(CellRef::new(0, 0)), Value::Number(42.0));
+    let (untouched, _) = gridcraft_engine::io::open_bytes("Second.xlsx", &std::fs::read(&paths[1]).unwrap()).unwrap();
+    assert_eq!(untouched.active().unwrap().value(CellRef::new(0, 0)), Value::Empty);
+    desk.answer_key(w3, egui::Key::Y, false);
+    assert_eq!(desk.app.session.documents().len(), 2, "a stray release does not answer the next question");
+    desk.answer_key(w3, egui::Key::Y, true);
+    assert_eq!(desk.app.session.documents().len(), 2);
+    let sent = desk.answer_key(w3, egui::Key::Y, false);
+    assert_eq!(desk.app.session.documents().len(), 1);
+    assert!(sent_to(&sent, ViewportId::ROOT, &ViewportCommand::Close));
+    std::fs::remove_dir_all(dir).unwrap();
 }
 
 #[test]
