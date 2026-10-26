@@ -33,7 +33,7 @@ fn choices_use_the_same_custom_and_statistical_criteria_as_filtering() {
         s.execute("data.filterBy", params).unwrap();
         let actual: Vec<_> = filter_values(&s.doc().unwrap().wb, 0, 0).into_iter().map(|(v, _)| v).collect();
         assert_eq!(actual, expected, "{criterion}");
-        // Statistics still come from the whole range even with another column filtered.
+        // The current column's own criterion must not narrow its alternatives.
         s.execute("data.filterBy", json!({"column": "A", "values": ["mid"]})).unwrap();
         let actual: Vec<_> = filter_values(&s.doc().unwrap().wb, 0, 0).into_iter().map(|(v, _)| v).collect();
         assert_eq!(actual, expected, "{criterion}, with the current column filtered");
@@ -42,6 +42,36 @@ fn choices_use_the_same_custom_and_statistical_criteria_as_filtering() {
             vec![("20".into(), true)],
             "the numeric column's own criterion must be excluded: {criterion}"
         );
+    }
+}
+
+#[test]
+fn statistical_thresholds_use_the_original_range_not_other_columns_subset() {
+    for (criterion, names, expected) in [
+        (json!({"top": {"count": 2}}), vec!["low", "mid", "upper"], vec!["upper"]),
+        (json!({"top": {"count": 50, "percent": true}}), vec!["low", "mid", "upper"], vec!["upper"]),
+        (json!({"top": {"count": 2, "bottom": true}}), vec!["mid", "upper", "high"], vec!["mid"]),
+        (json!({"top": {"count": 50, "percent": true, "bottom": true}}), vec!["mid", "upper", "high"], vec!["mid"]),
+        (json!({"aboveAverage": true}), vec!["low", "mid", "upper"], vec![]),
+        (json!({"aboveAverage": false}), vec!["low", "mid", "upper"], vec!["low", "mid", "upper"]),
+    ] {
+        let mut s = Session::new();
+        s.new_workbook();
+        s.execute(
+            "range.setValues",
+            json!({"range": "A1", "values": [
+                ["Name", "Amount", "Job"], ["low", 10, "low"], ["mid", 20, "mid"], ["upper", 30, "upper"], ["high", 100, "high"]
+            ]}),
+        )
+        .unwrap();
+        s.execute("data.filter", json!({"range": "A1:C5"})).unwrap();
+        s.execute("data.filterBy", json!({"column": "A", "values": names})).unwrap();
+        let mut params = criterion.clone();
+        params["column"] = json!("B");
+        s.execute("data.filterBy", params).unwrap();
+        // A and B both remain active when enumerating C. Subset statistics produce different jobs.
+        let actual: Vec<_> = filter_values(&s.doc().unwrap().wb, 0, 2).into_iter().map(|(v, _)| v).collect();
+        assert_eq!(actual, expected, "{criterion}");
     }
 }
 
@@ -176,7 +206,8 @@ fn choices_are_bounded_at_the_last_sheet_row_and_empty_for_missing_data() {
     s.new_workbook();
     assert!(filter_values(&s.doc().unwrap().wb, 0, 0).is_empty());
     assert!(filter_values(&s.doc().unwrap().wb, 99, 0).is_empty());
-    s.execute("range.setValues", json!({"range": "B1048574", "values": [["Company", "Job"], ["East", "Last East"], ["West", "Last West"]]})).unwrap();
+    s.execute("range.setValues", json!({"range": "B1048574", "values": [["Company", "Job"], ["West", "Before last"], ["East", "Last East"]]}))
+        .unwrap();
     s.execute("data.filter", json!({"range": "B1048574:C1048576"})).unwrap();
     s.execute("data.filterBy", json!({"column": "B", "values": ["East"]})).unwrap();
     assert_eq!(filter_values(&s.doc().unwrap().wb, 0, 2), vec![("Last East".into(), true)]);
