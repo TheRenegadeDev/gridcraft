@@ -513,6 +513,50 @@ fn save_changes_focus_loss_cancels_a_pending_answer_even_when_the_ui_cannot_pain
 }
 
 #[test]
+fn save_changes_escape_has_priority_over_a_release_in_the_same_input_batch() {
+    for escape_first in [false, true] {
+        let mut h = harness(Services::default());
+        h.state_mut().run("cell.set", serde_json::json!({"cell": "A1", "input": "42"})).unwrap();
+        let uid = h.state().session.doc().unwrap().uid;
+        request_window_close(&mut h);
+        h.key_down(egui::Key::N);
+        h.run_steps(1);
+        let release = egui::Event::Key { key: egui::Key::N, physical_key: None, pressed: false, repeat: false, modifiers: egui::Modifiers::NONE };
+        let escape = egui::Event::Key { key: egui::Key::Escape, physical_key: None, pressed: true, repeat: false, modifiers: egui::Modifiers::NONE };
+        // RawInput is one actual egui batch; kittest key helpers run separate frames.
+        h.input_mut().events.extend(if escape_first { [escape, release] } else { [release, escape] });
+        let sent = step_commands(&mut h);
+        assert!(!sent.contains(&egui::ViewportCommand::Close));
+        assert_eq!(h.state().session.doc().unwrap().uid, uid, "Esc must win in either event order");
+        assert!(h.state().session.doc().unwrap().is_dirty());
+        assert!(h.state().dialog.is_none());
+    }
+}
+
+#[test]
+fn save_changes_escape_has_priority_over_a_button_in_the_same_input_batch() {
+    let mut h = harness(Services::default());
+    h.state_mut().run("cell.set", serde_json::json!({"cell": "A1", "input": "42"})).unwrap();
+    let uid = h.state().session.doc().unwrap().uid;
+    request_window_close(&mut h);
+    let pos = h.get_by_role_and_label(egui::accesskit::Role::Button, "Don't Save").rect().center();
+    h.input_mut().events.extend([
+        egui::Event::PointerMoved(pos),
+        egui::Event::PointerButton { pos, button: egui::PointerButton::Primary, pressed: true, modifiers: egui::Modifiers::NONE },
+    ]);
+    h.run_steps(1);
+    h.input_mut().events.extend([
+        egui::Event::PointerButton { pos, button: egui::PointerButton::Primary, pressed: false, modifiers: egui::Modifiers::NONE },
+        egui::Event::Key { key: egui::Key::Escape, physical_key: None, pressed: true, repeat: false, modifiers: egui::Modifiers::NONE },
+    ]);
+    let sent = step_commands(&mut h);
+    assert!(!sent.contains(&egui::ViewportCommand::Close));
+    assert_eq!(h.state().session.doc().unwrap().uid, uid);
+    assert!(h.state().session.doc().unwrap().is_dirty());
+    assert!(h.state().dialog.is_none());
+}
+
+#[test]
 fn save_changes_shortcuts_keep_unsaved_work_after_picker_cancel_or_save_failure() {
     for fail in [false, true] {
         let dir = std::env::temp_dir().join(format!("gridcraft-close-y-failure-{}.xlsx", std::process::id()));

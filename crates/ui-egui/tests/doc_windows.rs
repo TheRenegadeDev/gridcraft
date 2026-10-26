@@ -249,6 +249,12 @@ fn mixed_answer_keeps_the_held_gesture_in_its_original_prompt(held: egui::Key, m
     assert_eq!(desk.app.session.doc().unwrap().uid, second_uid);
     assert!(desk.app.session.doc().unwrap().is_dirty());
     assert_eq!(desk.app.dialog.as_ref().map(|d| d.name()), Some("saveChanges"));
+    let (first_on_disk, _) = gridcraft_engine::io::open_bytes("First.xlsx", &std::fs::read(&paths[0]).unwrap()).unwrap();
+    assert_eq!(
+        first_on_disk.active().unwrap().value(CellRef::new(0, 0)),
+        if other == egui::Key::Y { Value::Number(42.0) } else { Value::Empty },
+        "the mouse/alternate-key choice must win on the first workbook"
+    );
     let (on_disk, _) = gridcraft_engine::io::open_bytes("Second.xlsx", &std::fs::read(&paths[1]).unwrap()).unwrap();
     assert_eq!(on_disk.active().unwrap().value(CellRef::new(0, 0)), Value::Empty, "the second file must not be overwritten");
     desk.answer_key(second, held, true);

@@ -1480,7 +1480,7 @@ pub fn show(app: &mut SheetApp, ctx: &egui::Context) {
                         for (label, choice) in
                             [("Don't Save", crate::SaveAnswer::DontSave), ("Cancel", crate::SaveAnswer::Cancel), ("Save", crate::SaveAnswer::Save)]
                         {
-                            if ui.button(label).clicked() {
+                            if ui.button(label).clicked() && answer != Some(crate::SaveAnswer::Cancel) {
                                 answer = Some(choice);
                             }
                         }
@@ -1631,7 +1631,7 @@ fn save_changes_shortcut(d: &mut Dialog, ctx: &egui::Context, focused: bool) -> 
                             answer.get_or_insert(if *key == Key::Y { crate::SaveAnswer::Save } else { crate::SaveAnswer::DontSave });
                         }
                     } else if *key == Key::Escape && *pressed && !repeat && focused && modifiers.is_none() {
-                        answer.get_or_insert(crate::SaveAnswer::Cancel);
+                        answer = Some(crate::SaveAnswer::Cancel);
                     }
                     // Consume the whole answer gesture, including repeats, before another
                     // workbook's question can be drawn in this frame.
