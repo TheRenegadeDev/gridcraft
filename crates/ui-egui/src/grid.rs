@@ -863,6 +863,7 @@ pub fn show(app: &mut SheetApp, ui: &mut egui::Ui) {
     context_menu(app, ui);
     fill_menu(app, ui, previous_popups.3 == app.grid.fill_menu);
     fill_options_tag(app, ui, &geo, sh);
+    fill_value_preview(app, ui, &geo, sh);
     object_menu(app, ui);
     error_check_tag(app, ui, &geo, sh);
     let track_x = if rtl { (available.left(), rect.left()) } else { (rect.right(), available.right()) };
@@ -2670,7 +2671,7 @@ fn interact(app: &mut SheetApp, ui: &mut egui::Ui, resp: &egui::Response, geo: &
             }
             Drag::Fill { target: Some(t), menu: false } => {
                 let src = sel.current();
-                if t != src {
+                if t != src && !ctx.input_mut(|i| i.consume_key(mods, egui::Key::Escape)) {
                     // Ctrl (Cmd on macOS) swaps copying and extending, as in Excel.
                     let mode = if mods.command { "alternate" } else { "series" };
                     match app.run("edit.autoFill", json!({"source": src.a1(), "target": t.a1(), "mode": mode})) {
@@ -2842,6 +2843,42 @@ fn scroll_by(app: &mut SheetApp, d: egui::Vec2) {
     {
         v.scroll = (v.scroll + d).max(egui::Vec2::ZERO);
     }
+}
+
+/// The current drag endpoint, predicted by the engine without executing an edit.
+fn fill_value_preview(app: &SheetApp, ui: &egui::Ui, geo: &Geo, sh: &Sheet) {
+    let Drag::Fill { target: Some(target), menu: false } = app.grid.drag else { return };
+    let Some(doc) = app.session.active() else { return };
+    let Some(pointer) = ui.ctx().pointer_hover_pos() else { return };
+    let pc = geo.cell_at(sh, geo.mirror_pos(pointer));
+    let at = CellRef::new(pc.row.clamp(target.start.row, target.end.row), pc.col.clamp(target.start.col, target.end.col));
+    let mode = if ui.input(|i| i.modifiers.command) { gridcraft_engine::fill::FillMode::Alternate } else { gridcraft_engine::fill::FillMode::Series };
+    let Some(cell) = gridcraft_engine::fill::preview_cell(&doc.wb, doc.wb.active_sheet(), doc.selection.current(), target, at, mode) else { return };
+    // Recalculation is deferred until release; show the shifted formula itself.
+    let text = if cell.formula.is_some() {
+        cell.input_text()
+    } else {
+        gridcraft_engine::display::value_text_as(&doc.wb, &cell.value, doc.wb.styles.get(cell.style).num_fmt.as_str())
+    };
+    if text.is_empty() {
+        return;
+    }
+    // Keep long cell contents from covering the grid while dragging.
+    let mut chars = text.chars();
+    let mut label: String = chars.by_ref().take(128).collect();
+    if chars.next().is_some() {
+        label.push('…');
+    }
+    egui::Area::new(egui::Id::unique("fill_value_preview"))
+        .order(egui::Order::Tooltip)
+        .interactable(false)
+        .fixed_pos(pointer + vec2(14.0, 18.0))
+        .show(ui.ctx(), |ui| {
+            ui.set_max_width(240.0);
+            egui::Frame::popup(ui.style()).show(ui, |ui| {
+                ui.add(egui::Label::new(label).wrap());
+            });
+        });
 }
 
 fn fill_target(src: RangeRef, pc: CellRef) -> RangeRef {

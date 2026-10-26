@@ -92,6 +92,117 @@ fn n(x: f64) -> Value {
 }
 
 #[test]
+fn fill_drag_previews_endpoint_without_changing_the_workbook() {
+    let mut h = harness(|s| {
+        s.execute("range.setValues", json!({"range": "B1", "values": [[1], [2], [3]]})).unwrap();
+        s.execute("selection.set", json!({"range": "B1:B3"})).unwrap();
+    });
+    let before = h.state().session.active().unwrap();
+    let (undo_before, revision_before, dirty_before) = (before.undo.len(), before.revision, before.is_dirty());
+    let workbook_before = before.wb.clone();
+    let (start, end) = (corner(&h, "B3"), center(&h, "B6"));
+    press(&mut h, start, PointerButton::Primary);
+    move_to(&mut h, start, end);
+    h.run_steps(3);
+
+    assert_eq!(values(&h, &["B4", "B5", "B6"]), [Value::Empty, Value::Empty, Value::Empty]);
+    assert_eq!(h.state().session.active().unwrap().undo.len(), undo_before);
+    let during = h.state().session.active().unwrap();
+    assert_eq!((during.revision, during.is_dirty()), (revision_before, dirty_before));
+    assert!(std::sync::Arc::ptr_eq(&workbook_before, &during.wb));
+    if let Ok(path) = std::env::var("GRIDCRAFT_FILL_PREVIEW_SCREENSHOT") {
+        h.render().unwrap().save(path).unwrap();
+    }
+    assert!(h.query_by_label("6").is_some(), "the tooltip predicts the value at the drag endpoint");
+
+    release(&mut h, end, PointerButton::Primary);
+    assert_eq!(value(&h, "B6"), n(6.0));
+    assert!(h.query_by_label("6").is_none(), "the tooltip disappears on release");
+    assert!(h.query_by_label("Auto Fill Options").is_some());
+    assert_eq!(h.state().session.active().unwrap().undo.len(), undo_before + 1);
+}
+
+#[test]
+fn escape_cancels_the_fill_preview_without_committing() {
+    let mut h = harness(one_two);
+    let before = h.state().session.active().unwrap().wb.clone();
+    let (start, end) = (corner(&h, "B2"), center(&h, "B6"));
+    press(&mut h, start, PointerButton::Primary);
+    move_to(&mut h, start, end);
+    h.run_steps(3);
+    assert!(h.query_by_label("6").is_some());
+    h.input_mut().events.push(Event::Key { key: egui::Key::Escape, physical_key: None, pressed: true, repeat: false, modifiers: Modifiers::NONE });
+    h.run_steps(3);
+    release(&mut h, end, PointerButton::Primary);
+    assert!(h.query_by_label("6").is_none());
+    assert!(std::sync::Arc::ptr_eq(&before, &h.state().session.active().unwrap().wb));
+    assert!(h.query_by_label("Auto Fill Options").is_none());
+}
+
+#[test]
+fn escape_also_cancels_a_copy_modifier_drag() {
+    let mut h = harness(one_two);
+    let before = h.state().session.active().unwrap().wb.clone();
+    let (start, end) = (corner(&h, "B2"), center(&h, "B6"));
+    press(&mut h, start, PointerButton::Primary);
+    move_to(&mut h, start, end);
+    let modifiers = Modifiers::COMMAND;
+    h.input_mut().events.push(Event::ModifiersChanged(modifiers));
+    h.run_steps(3);
+    assert!(h.query_by_label("2").is_some());
+    h.input_mut().events.push(Event::Key { key: egui::Key::Escape, physical_key: None, pressed: true, repeat: false, modifiers });
+    h.run_steps(3);
+    release(&mut h, end, PointerButton::Primary);
+    assert!(h.query_by_label("2").is_none());
+    assert!(std::sync::Arc::ptr_eq(&before, &h.state().session.active().unwrap().wb));
+}
+
+#[test]
+fn fill_preview_follows_direction_format_and_copy_modifier() {
+    for (source, input, from, to, expected, alternate, rtl) in [
+        ("B4:B6", json!([[1], [2], [3]]), "B6", "B1", "-2", false, false),
+        ("B2:D2", json!([[1, 2, 3]]), "D2", "G2", "6", false, false),
+        ("E2:G2", json!([[1, 2, 3]]), "G2", "B2", "-2", false, false),
+        ("B1:B3", json!([[1], [2], [3]]), "B3", "B5", "2", true, false),
+        ("B1", json!([[5]]), "B1", "B4", "8", true, false),
+        ("B1", json!([["1/31/2026"]]), "B1", "B4", "2/3/2026", false, false),
+        ("B1", json!([["Item 007"]]), "B1", "B4", "Item 010", false, false),
+        ("B1", json!([["=A1+1"]]), "B1", "B4", "=A4+1", false, false),
+        ("B1:B3", json!([[1], [2], [3]]), "B3", "B6", "6", false, true),
+    ] {
+        let mut h = harness(|s| {
+            let start = source.split(':').next().unwrap();
+            s.execute("range.setValues", json!({"range": start, "values": input})).unwrap();
+            s.execute("selection.set", json!({"range": source})).unwrap();
+            if rtl {
+                s.execute("view.rightToLeft", json!({"on": true})).unwrap();
+            }
+        });
+        let (start, end) = (corner(&h, from), center(&h, to));
+        press(&mut h, start, PointerButton::Primary);
+        move_to(&mut h, start, end);
+        // Change the modifier during the drag; the tooltip must use the release mode.
+        let modifiers = Modifiers { command: alternate, ctrl: alternate, ..Modifiers::NONE };
+        h.input_mut().events.push(Event::ModifiersChanged(modifiers));
+        h.run_steps(3);
+        assert!(h.query_by_label(expected).is_some(), "{source} -> {to}, alternate={alternate}, rtl={rtl}");
+        assert_eq!(value(&h, to), Value::Empty);
+        h.input_mut().events.push(Event::PointerButton { pos: end, button: PointerButton::Primary, pressed: false, modifiers });
+        h.run_steps(3);
+        assert!(h.query_by_label(expected).is_none(), "preview gone after release");
+        let d = h.state().session.active().unwrap();
+        let sh = d.wb.active().unwrap();
+        let cell = CellRef::parse(to).unwrap();
+        let actual = if sh.cell(cell).is_some_and(|c| c.formula.is_some()) {
+            sh.input_text(cell)
+        } else {
+            gridcraft_engine::display::cell_text(&d.wb, sh, cell)
+        };
+        assert_eq!(actual, expected);
+    }
+}
+
+#[test]
 fn left_drag_shows_the_auto_fill_options_button() {
     let mut h = harness(one_two);
     assert!(h.query_by_label("Auto Fill Options").is_none());
