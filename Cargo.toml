@@ -88,18 +88,18 @@ debug = 0
 
 # Keep the complete egui family and native event bridge on reviewed fork commits.
 [patch.crates-io]
-ecolor = { git = "https://github.com/TheRenegadeDev/egui.git", rev = "837618f4f9b117a0f9418a76aafecbc2d51c3d34" }
-emath = { git = "https://github.com/TheRenegadeDev/egui.git", rev = "837618f4f9b117a0f9418a76aafecbc2d51c3d34" }
-epaint = { git = "https://github.com/TheRenegadeDev/egui.git", rev = "837618f4f9b117a0f9418a76aafecbc2d51c3d34" }
-epaint_default_fonts = { git = "https://github.com/TheRenegadeDev/egui.git", rev = "837618f4f9b117a0f9418a76aafecbc2d51c3d34" }
-egui = { git = "https://github.com/TheRenegadeDev/egui.git", rev = "837618f4f9b117a0f9418a76aafecbc2d51c3d34" }
-egui-winit = { git = "https://github.com/TheRenegadeDev/egui.git", rev = "837618f4f9b117a0f9418a76aafecbc2d51c3d34" }
-egui-wgpu = { git = "https://github.com/TheRenegadeDev/egui.git", rev = "837618f4f9b117a0f9418a76aafecbc2d51c3d34" }
-egui_glow = { git = "https://github.com/TheRenegadeDev/egui.git", rev = "837618f4f9b117a0f9418a76aafecbc2d51c3d34" }
-egui_extras = { git = "https://github.com/TheRenegadeDev/egui.git", rev = "837618f4f9b117a0f9418a76aafecbc2d51c3d34" }
-egui_kittest = { git = "https://github.com/TheRenegadeDev/egui.git", rev = "837618f4f9b117a0f9418a76aafecbc2d51c3d34" }
-egui_system_font_provider = { git = "https://github.com/TheRenegadeDev/egui.git", rev = "837618f4f9b117a0f9418a76aafecbc2d51c3d34" }
-eframe = { git = "https://github.com/TheRenegadeDev/egui.git", rev = "837618f4f9b117a0f9418a76aafecbc2d51c3d34" }
-egui_demo_lib = { git = "https://github.com/TheRenegadeDev/egui.git", rev = "837618f4f9b117a0f9418a76aafecbc2d51c3d34" }
-egui_inspection = { git = "https://github.com/TheRenegadeDev/egui.git", rev = "837618f4f9b117a0f9418a76aafecbc2d51c3d34" }
-winit = { git = "https://github.com/storytold/winit.git", rev = "a517b3846ee8457d84ee4975110bfda6797c44dc" }
+ecolor = { git = "https://github.com/TheRenegadeDev/egui.git", rev = "2729d25a4f383c3a6459b130360e349b04d9e4c9" }
+emath = { git = "https://github.com/TheRenegadeDev/egui.git", rev = "2729d25a4f383c3a6459b130360e349b04d9e4c9" }
+epaint = { git = "https://github.com/TheRenegadeDev/egui.git", rev = "2729d25a4f383c3a6459b130360e349b04d9e4c9" }
+epaint_default_fonts = { git = "https://github.com/TheRenegadeDev/egui.git", rev = "2729d25a4f383c3a6459b130360e349b04d9e4c9" }
+egui = { git = "https://github.com/TheRenegadeDev/egui.git", rev = "2729d25a4f383c3a6459b130360e349b04d9e4c9" }
+egui-winit = { git = "https://github.com/TheRenegadeDev/egui.git", rev = "2729d25a4f383c3a6459b130360e349b04d9e4c9" }
+egui-wgpu = { git = "https://github.com/TheRenegadeDev/egui.git", rev = "2729d25a4f383c3a6459b130360e349b04d9e4c9" }
+egui_glow = { git = "https://github.com/TheRenegadeDev/egui.git", rev = "2729d25a4f383c3a6459b130360e349b04d9e4c9" }
+egui_extras = { git = "https://github.com/TheRenegadeDev/egui.git", rev = "2729d25a4f383c3a6459b130360e349b04d9e4c9" }
+egui_kittest = { git = "https://github.com/TheRenegadeDev/egui.git", rev = "2729d25a4f383c3a6459b130360e349b04d9e4c9" }
+egui_system_font_provider = { git = "https://github.com/TheRenegadeDev/egui.git", rev = "2729d25a4f383c3a6459b130360e349b04d9e4c9" }
+eframe = { git = "https://github.com/TheRenegadeDev/egui.git", rev = "2729d25a4f383c3a6459b130360e349b04d9e4c9" }
+egui_demo_lib = { git = "https://github.com/TheRenegadeDev/egui.git", rev = "2729d25a4f383c3a6459b130360e349b04d9e4c9" }
+egui_inspection = { git = "https://github.com/TheRenegadeDev/egui.git", rev = "2729d25a4f383c3a6459b130360e349b04d9e4c9" }
+winit = { git = "https://github.com/TheRenegadeDev/winit.git", rev = "a3650adea9d5f751cc7a3bc87fe58c30c3e74317" }
