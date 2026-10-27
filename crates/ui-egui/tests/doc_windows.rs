@@ -125,17 +125,42 @@ impl Desk {
     }
 
     fn answer_key(&mut self, window: u64, key: egui::Key, pressed: bool) -> Vec<(ViewportId, ViewportCommand)> {
+        self.key_event(window, key, pressed, false)
+    }
+
+    fn key_event(&mut self, window: u64, key: egui::Key, pressed: bool, repeat: bool) -> Vec<(ViewportId, ViewportCommand)> {
         let vp = self.viewport(window);
         KEYS.with(|i| {
             i.borrow_mut().entry(vp).or_default().push(egui::Event::Key {
                 key,
                 physical_key: None,
                 pressed,
-                repeat: false,
+                repeat,
                 modifiers: egui::Modifiers::NONE,
             })
         });
         self.frames(3)
+    }
+
+    fn move_focus(&mut self, from: u64, to: u64, held: egui::Key, synthetic_release: bool) {
+        let (source, target) = (self.viewport(from), self.viewport(to));
+        INFOS.with(|i| {
+            let mut i = i.borrow_mut();
+            i.entry(source).or_default().focused = Some(false);
+            i.entry(target).or_default().focused = Some(true);
+        });
+        KEYS.with(|i| {
+            let mut i = i.borrow_mut();
+            let events = i.entry(source).or_default();
+            if synthetic_release {
+                // Windows synthesizes this before reporting focus loss.
+                events.push(egui::Event::Key { key: held, physical_key: None, pressed: false, repeat: false, modifiers: egui::Modifiers::NONE });
+            }
+            events.push(egui::Event::WindowFocused(false));
+            // egui-winit drops synthetic held-key presses at focus gain.
+            i.entry(target).or_default().push(egui::Event::WindowFocused(true));
+        });
+        self.frames(3);
     }
 
     fn click_answer(&mut self, window: u64, label: &str) {
@@ -721,4 +746,105 @@ fn arrange_all_lays_out_the_native_windows_active_first() {
     let tiled = gridcraft_ui_egui::doc_windows::arrange_rects("tiled", 3, craft_window::Rect::new(0.0, 0.0, 1000.0, 800.0));
     let r = |x, y, w, h| craft_window::Rect::new(x, y, w, h);
     assert_eq!(tiled, [r(0.0, 0.0, 500.0, 400.0), r(500.0, 0.0, 500.0, 400.0), r(0.0, 400.0, 1000.0, 400.0)]);
+}
+
+fn held_key_cannot_answer_another_open_prompt_after_focus_switch(held: egui::Key) {
+    let dir = std::env::temp_dir().join(format!("gridcraft-concurrent-focus-{held:?}-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let paths = [dir.join("First.xlsx"), dir.join("Second.xlsx")];
+    let mut desk = Desk::new(true);
+    for path in &paths {
+        desk.app.run("file.new", json!({})).unwrap();
+        desk.app.run("file.save", json!({"path": path})).unwrap();
+        desk.app.run("cell.set", json!({"cell": "A1", "input": "42"})).unwrap();
+    }
+    desk.frames(3);
+    let (first, second) = (desk.window_of(1), desk.window_of(2));
+    let second_uid = desk.app.session.documents()[2].uid;
+    let before = std::fs::read(&paths[1]).unwrap();
+    desk.close(first);
+    desk.close(second);
+    desk.move_focus(second, first, held, false);
+    desk.app.enter_window(first);
+    assert_eq!(desk.app.dialog.as_ref().map(|d| d.name()), Some("saveChanges"));
+    desk.answer_key(first, held, true);
+    desk.move_focus(first, second, held, true);
+    desk.app.enter_window(second);
+    assert_eq!(desk.app.dialog.as_ref().map(|d| d.name()), Some("saveChanges"));
+    // Winit's native repeat survives egui-winit even though this viewport never saw down.
+    PRESSES.with(|p| p.borrow_mut().clear());
+    desk.key_event(second, held, true, true);
+    assert!(PRESSES.with(|p| p.borrow().contains(&(desk.viewport(second), held, true))));
+    desk.answer_key(second, held, false);
+    assert_eq!(desk.app.session.documents().len(), 3);
+    assert!(desk.app.session.documents().iter().any(|d| d.uid == second_uid && d.is_dirty()));
+    assert_eq!(std::fs::read(&paths[1]).unwrap(), before, "the held gesture must not overwrite B");
+    desk.answer_key(second, held, true);
+    desk.answer_key(second, held, false);
+    assert_eq!(desk.app.session.documents().len(), 2, "a fresh deliberate gesture still answers B");
+    let (saved, _) = gridcraft_engine::io::open_bytes("Second.xlsx", &std::fs::read(&paths[1]).unwrap()).unwrap();
+    assert_eq!(saved.active().unwrap().value(CellRef::new(0, 0)), if held == egui::Key::Y { Value::Number(42.0) } else { Value::Empty });
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
+fn focus_switch_held_n_does_not_discard_another_open_prompt() {
+    held_key_cannot_answer_another_open_prompt_after_focus_switch(egui::Key::N);
+}
+
+#[test]
+fn focus_switch_held_y_does_not_save_another_open_prompt() {
+    held_key_cannot_answer_another_open_prompt_after_focus_switch(egui::Key::Y);
+}
+
+fn continued_hold_after_focus_regain_cannot_answer(held: egui::Key) {
+    for mouse in [false, true] {
+        for synthetic_release in [false, true] {
+            let dir = std::env::temp_dir().join(format!("gridcraft-regain-{held:?}-{mouse}-{synthetic_release}-{}", std::process::id()));
+            std::fs::create_dir_all(&dir).unwrap();
+            let path = dir.join("First.xlsx");
+            let mut desk = Desk::new(true);
+            desk.app.run("file.save", json!({"path": path})).unwrap();
+            desk.app.run("cell.set", json!({"cell": "A1", "input": "42"})).unwrap();
+            let uid = desk.app.session.doc().unwrap().uid;
+            desk.app.run("file.new", json!({})).unwrap();
+            desk.frames(3);
+            let (first, other_window) = (desk.window_of(0), desk.window_of(1));
+            let before = std::fs::read(&path).unwrap();
+            desk.close(first);
+            desk.answer_key(first, held, true);
+            let other = if held == egui::Key::N { egui::Key::Y } else { egui::Key::N };
+            if mouse {
+                desk.click_answer(first, if other == egui::Key::Y { "Save" } else { "Don't Save" });
+            } else {
+                desk.answer_key(first, other, true);
+                desk.answer_key(first, other, false);
+            }
+            desk.move_focus(first, other_window, held, synthetic_release);
+            desk.move_focus(other_window, first, held, false);
+            // No physical release occurred. The next native auto-repeat must not rearm.
+            PRESSES.with(|p| p.borrow_mut().clear());
+            desk.key_event(first, held, true, true);
+            assert!(PRESSES.with(|p| p.borrow().contains(&(desk.viewport(first), held, true))));
+            desk.answer_key(first, held, false);
+            assert!(desk.app.session.documents().iter().any(|d| d.uid == uid && d.is_dirty()));
+            assert_eq!(std::fs::read(&path).unwrap(), before);
+            desk.answer_key(first, held, true);
+            desk.answer_key(first, held, false);
+            assert!(!desk.app.session.documents().iter().any(|d| d.uid == uid), "a new gesture can answer after the hold ends");
+            let (saved, _) = gridcraft_engine::io::open_bytes("First.xlsx", &std::fs::read(&path).unwrap()).unwrap();
+            assert_eq!(saved.active().unwrap().value(CellRef::new(0, 0)), if held == egui::Key::Y { Value::Number(42.0) } else { Value::Empty });
+            std::fs::remove_dir_all(dir).unwrap();
+        }
+    }
+}
+
+#[test]
+fn regaining_focus_with_n_held_does_not_discard() {
+    continued_hold_after_focus_regain_cannot_answer(egui::Key::N);
+}
+
+#[test]
+fn regaining_focus_with_y_held_does_not_save() {
+    continued_hold_after_focus_regain_cannot_answer(egui::Key::Y);
 }
