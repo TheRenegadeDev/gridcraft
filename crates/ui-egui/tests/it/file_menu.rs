@@ -404,6 +404,75 @@ fn save_changes_shortcuts_ignore_modified_answers_and_held_n() {
 }
 
 #[test]
+fn save_changes_does_not_answer_through_a_macro_question_or_message() {
+    for message in [false, true] {
+        for key in [egui::Key::N, egui::Key::Y, egui::Key::Escape] {
+            let mut h = harness(Services::default());
+            h.state_mut().run("cell.set", serde_json::json!({"cell": "A1", "input": "42"})).unwrap();
+            if !message {
+                h.state_mut().ui.ribbon_tab = "Automate".into();
+                h.state_mut().run("macro.save", serde_json::json!({"macro": {"name": "Tidy", "steps": []}})).unwrap();
+                h.state_mut().open_dialog("macros", serde_json::json!({"name": "Tidy"}));
+                h.run_steps(2);
+                h.get_by_label("Delete").click();
+                h.run_steps(2);
+                assert!(h.state().macros.question.is_some(), "Delete opens the real macro question");
+            }
+            let doc = h.state().session.doc().unwrap().uid;
+            request_window_close(&mut h);
+            assert_eq!(h.state().dialog.as_ref().map(|d| d.name()), Some("saveChanges"));
+            if message {
+                h.state_mut().message = Some(("GridCraft".into(), "The workbook needs attention.".into()));
+                h.run_steps(2);
+            }
+            h.key_press(key);
+            let sent = step_commands(&mut h);
+            assert!(!sent.contains(&egui::ViewportCommand::Close), "message={message}, key={key:?}");
+            assert!(h.state().session.documents().iter().any(|d| d.uid == doc && d.is_dirty()));
+            assert_eq!(h.state().dialog.as_ref().map(|d| d.name()), Some("saveChanges"));
+            assert_eq!(h.state().message.is_some() || h.state().macros.question.is_some(), key != egui::Key::Escape);
+            if key != egui::Key::Escape {
+                h.key_press(egui::Key::Escape);
+                step_commands(&mut h);
+            }
+            assert!(h.state().message.is_none() && h.state().macros.question.is_none());
+            assert_eq!(h.state().dialog.as_ref().map(|d| d.name()), Some("saveChanges"));
+            h.key_press(egui::Key::N);
+            assert!(step_commands(&mut h).contains(&egui::ViewportCommand::Close), "a fresh N works after the covering modal closes");
+            assert!(h.state().session.documents().iter().all(|d| d.uid != doc));
+        }
+    }
+}
+
+#[test]
+fn save_changes_forgets_armed_and_pending_answers_when_a_message_covers_it() {
+    for pending in [false, true] {
+        let mut h = harness(Services::default());
+        h.state_mut().run("cell.set", serde_json::json!({"cell": "A1", "input": "42"})).unwrap();
+        let doc = h.state().session.doc().unwrap().uid;
+        request_window_close(&mut h);
+        h.key_down(egui::Key::N);
+        h.run_steps(1);
+        if pending {
+            h.key_press(egui::Key::Y);
+            h.run_steps(2);
+        }
+        h.state_mut().message = Some(("GridCraft".into(), "The workbook needs attention.".into()));
+        h.run_steps(2);
+        h.key_up(egui::Key::N);
+        step_commands(&mut h);
+        assert!(h.state().session.documents().iter().any(|d| d.uid == doc && d.is_dirty()));
+        h.key_press(egui::Key::Escape);
+        step_commands(&mut h);
+        assert!(h.state().message.is_none());
+        assert_eq!(h.state().dialog.as_ref().map(|d| d.name()), Some("saveChanges"));
+        h.key_press(egui::Key::N);
+        assert!(step_commands(&mut h).contains(&egui::ViewportCommand::Close));
+        assert!(h.state().session.documents().iter().all(|d| d.uid != doc));
+    }
+}
+
+#[test]
 fn save_changes_shortcuts_ignore_releases_from_focus_loss() {
     let dir = std::env::temp_dir().join(format!("gridcraft-answer-focus-loss-{}", std::process::id()));
     std::fs::create_dir_all(&dir).unwrap();
