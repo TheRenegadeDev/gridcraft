@@ -158,6 +158,49 @@ fn escape_also_cancels_a_copy_modifier_drag() {
 }
 
 #[test]
+fn escape_cancels_fill_when_the_copy_modifier_is_released_in_the_same_batch() {
+    for modifiers in [Modifiers::CTRL, Modifiers::COMMAND] {
+        let mut h = harness(one_two);
+        let before = h.state().session.active().unwrap().wb.clone();
+        let undo_before = h.state().session.active().unwrap().undo.len();
+        let (start, end) = (corner(&h, "B2"), center(&h, "B6"));
+        press(&mut h, start, PointerButton::Primary);
+        move_to(&mut h, start, end);
+        h.input_mut().events.push(Event::ModifiersChanged(modifiers));
+        h.run_steps(2);
+        h.input_mut().events.push(Event::Key { key: egui::Key::Escape, physical_key: None, pressed: true, repeat: false, modifiers });
+        h.input_mut().events.push(Event::ModifiersChanged(Modifiers::NONE));
+        h.run_steps(3);
+        release(&mut h, end, PointerButton::Primary);
+        assert!(std::sync::Arc::ptr_eq(&before, &h.state().session.active().unwrap().wb), "Escape cancels even after {modifiers:?} is released");
+        assert_eq!(h.state().session.active().unwrap().undo.len(), undo_before);
+        assert!(h.query_by_label("Auto Fill Options").is_none());
+    }
+}
+
+#[test]
+fn fill_preview_uses_the_visible_lane_when_the_pointer_is_outside_the_viewport() {
+    let mut h = harness(|s| {
+        s.execute("range.setValues", json!({"range": "B1", "values": [[1, 10, 100], [2, 20, 200]]})).unwrap();
+        s.execute("selection.set", json!({"range": "B1:D2"})).unwrap();
+    });
+    // Keep the left source lanes offscreen while leaving the fill handle visible.
+    h.state_mut().view_mut().unwrap().scroll.x = 130.0;
+    h.run_steps(3);
+    let (start, end) = (corner(&h, "D2"), center(&h, "C6"));
+    press(&mut h, start, PointerButton::Primary);
+    move_to(&mut h, start, end);
+    let app = h.state();
+    let sh = app.session.active().unwrap().wb.active().unwrap();
+    let geo = Geo::new(sh, app.grid.rect.unwrap(), app.view().scroll);
+    let outside = egui::pos2(geo.cells.left() - 200.0, end.y);
+    h.input_mut().events.push(Event::PointerMoved(outside));
+    h.step();
+    assert!(h.query_by_label("60").is_some(), "the preview uses visible column C, not offscreen B");
+    assert!(h.query_by_label("6").is_none());
+}
+
+#[test]
 fn fill_preview_follows_direction_format_and_copy_modifier() {
     for (source, input, from, to, expected, alternate, rtl) in [
         ("B4:B6", json!([[1], [2], [3]]), "B6", "B1", "-2", false, false),

@@ -358,7 +358,14 @@ fn fill_value_preview(app: &SheetApp, ui: &egui::Ui, geo: &Geo, sh: &Sheet) {
     let Drag::Fill { target: Some(target), menu: false } = app.grid.drag else { return };
     let Some(doc) = app.session.active() else { return };
     let Some(pointer) = ui.ctx().pointer_hover_pos() else { return };
-    let pc = geo.cell_at(sh, geo.mirror_pos(pointer));
+    let pointer_in_grid = geo.mirror_pos(pointer);
+    let pc = geo.cell_at(
+        sh,
+        pos2(
+            pointer_in_grid.x.clamp(geo.cells.left() + 1.0, geo.cells.right() - 1.0),
+            pointer_in_grid.y.clamp(geo.cells.top() + 1.0, geo.cells.bottom() - 1.0),
+        ),
+    );
     let at = CellRef::new(pc.row.clamp(target.start.row, target.end.row), pc.col.clamp(target.start.col, target.end.col));
     let mode = if ui.input(|i| i.modifiers.command) { gridcraft_engine::fill::FillMode::Alternate } else { gridcraft_engine::fill::FillMode::Series };
     let Some(cell) = gridcraft_engine::fill::preview_cell(&doc.wb, doc.wb.active_sheet(), doc.selection.current(), target, at, mode) else { return };
