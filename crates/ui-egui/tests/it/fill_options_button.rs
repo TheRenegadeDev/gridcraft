@@ -140,6 +140,28 @@ fn escape_cancels_the_fill_preview_without_committing() {
 }
 
 #[test]
+fn fill_preview_does_not_record_macro_steps_before_release() {
+    let mut h = harness(one_two);
+    h.state_mut().run("macro.record", json!({"name": "FillPreview", "relative": false})).unwrap();
+    h.run_steps(2);
+    let before = h.state().session.recorder.as_ref().unwrap().steps.clone();
+    let (start, end) = (corner(&h, "B2"), center(&h, "B6"));
+    press(&mut h, start, PointerButton::Primary);
+    move_to(&mut h, start, end);
+    h.run_steps(3);
+    assert!(h.query_by_label("6").is_some());
+    assert_eq!(h.state().session.recorder.as_ref().unwrap().steps, before, "preview frames must not become recorded commands");
+    release(&mut h, end, PointerButton::Primary);
+    let steps = &h.state().session.recorder.as_ref().unwrap().steps;
+    assert_eq!(steps.len(), before.len() + 1, "only the committed fill is recorded");
+    let step = steps.last().unwrap();
+    assert_eq!(step.id, "edit.autoFill");
+    assert_eq!(step.params["source"], "B1:B2");
+    assert_eq!(step.params["target"], "B1:B6");
+    assert_eq!(value(&h, "B6"), n(6.0));
+}
+
+#[test]
 fn escape_also_cancels_a_copy_modifier_drag() {
     let mut h = harness(one_two);
     let before = h.state().session.active().unwrap().wb.clone();
