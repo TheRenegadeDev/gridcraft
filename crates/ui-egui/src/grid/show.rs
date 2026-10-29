@@ -348,15 +348,17 @@ fn show_grid_interactions(app: &mut SheetApp, ui: &mut egui::Ui, resp: &egui::Re
     context_menu(app, ui);
     fill_menu(app, ui, previous_popups.3 == app.grid.fill_menu);
     fill_options_tag(app, ui, geo, sh);
-    fill_value_preview(app, ui, geo, sh);
+    fill_value_preview(app, ui, geo);
     object_menu(app, ui);
     error_check_tag(app, ui, geo, sh);
 }
 
 /// The current drag endpoint, predicted by the engine without executing an edit.
-fn fill_value_preview(app: &SheetApp, ui: &egui::Ui, geo: &Geo, sh: &Sheet) {
+fn fill_value_preview(app: &SheetApp, ui: &egui::Ui, geo: &Geo) {
     let Drag::Fill { target: Some(target), menu: false } = app.grid.drag else { return };
     let Some(doc) = app.session.active() else { return };
+    let si = doc.wb.active_sheet();
+    let Some(sh) = doc.wb.sheet(si) else { return };
     let Some(pointer) = ui.ctx().pointer_hover_pos() else { return };
     let pointer_in_grid = geo.mirror_pos(pointer);
     let pc = geo.cell_at(
@@ -368,14 +370,14 @@ fn fill_value_preview(app: &SheetApp, ui: &egui::Ui, geo: &Geo, sh: &Sheet) {
     );
     let at = CellRef::new(pc.row.clamp(target.start.row, target.end.row), pc.col.clamp(target.start.col, target.end.col));
     let mode = if ui.input(|i| i.modifiers.command) { gridcraft_engine::fill::FillMode::Alternate } else { gridcraft_engine::fill::FillMode::Series };
-    let Some(cell) = gridcraft_engine::fill::preview_cell(&doc.wb, doc.wb.active_sheet(), doc.selection.current(), target, at, mode) else { return };
+    let Some(cell) = gridcraft_engine::fill::preview_cell(&doc.wb, si, doc.selection.current(), target, at, mode) else { return };
     let style = doc.wb.styles.get(cell.style);
     // Recalculation is deferred until release; show the shifted formula itself.
     let text = if cell.formula.is_some() {
         if style.protection.hidden && sh.is_protected() {
             return;
         }
-        crate::formula_locale::display(&cell.input_text(), app.ui.language.formula_locale(), &doc.wb, doc.wb.active_sheet())
+        crate::formula_locale::display(&cell.input_text(), app.ui.language.formula_locale(), &doc.wb, si)
     } else {
         gridcraft_engine::display::value_text_as(&doc.wb, &cell.value, style.num_fmt.as_str())
     };

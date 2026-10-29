@@ -318,6 +318,35 @@ fn formula_fill_preview_uses_the_selected_formula_language() {
 }
 
 #[test]
+fn fill_preview_uses_the_new_sheets_protection_on_the_navigation_frame() {
+    for hidden in [true, false] {
+        let mut h = harness(|s| {
+            s.execute("cell.set", json!({"cell": "A1", "input": "=C1*2.71"})).unwrap();
+            s.execute("home.insertSheet", json!({"name": "Private"})).unwrap();
+            s.execute("cell.set", json!({"cell": "A1", "input": "=C1*1.17"})).unwrap();
+            s.execute("home.formatCells", json!({"range": "A1", "style": {"protection": {"hidden": hidden}}})).unwrap();
+            s.execute("home.formatCells", json!({"range": "A2:A4", "style": {"protection": {"locked": false}}})).unwrap();
+            s.execute("review.protectSheet", json!({})).unwrap();
+            s.execute("sheet.activate", json!({"sheet": 0})).unwrap();
+            s.execute("selection.set", json!({"cell": "A1"})).unwrap();
+        });
+        let (start, end) = (corner(&h, "A1"), center(&h, "A4"));
+        press(&mut h, start, PointerButton::Primary);
+        move_to(&mut h, start, end);
+        h.run_steps(2);
+        assert!(h.query_by_label("=C4*2.71").is_some());
+        let modifiers = Modifiers::COMMAND;
+        h.input_mut().events.push(Event::ModifiersChanged(modifiers));
+        h.input_mut().events.push(Event::Key { key: egui::Key::PageDown, physical_key: None, pressed: true, repeat: false, modifiers });
+        h.step();
+        assert_eq!(h.state().session.active().unwrap().wb.active_sheet(), 1, "the keyboard switches sheets during the drag");
+        assert!(matches!(h.state().grid.drag, gridcraft_ui_egui::grid::Drag::Fill { target: Some(_), .. }));
+        assert_eq!(value(&h, "A4"), Value::Empty, "the preview must not commit a fill");
+        assert_eq!(h.query_by_label("=C4*1.17").is_some(), !hidden, "the first navigation frame uses the predicted sheet's protection");
+    }
+}
+
+#[test]
 fn left_drag_shows_the_auto_fill_options_button() {
     let mut h = harness(one_two);
     assert!(h.query_by_label("Auto Fill Options").is_none());
