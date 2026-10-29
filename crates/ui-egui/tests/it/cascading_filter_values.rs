@@ -1,8 +1,10 @@
 use crate::common;
 
-use egui::{Event, Key, Modifiers};
+use egui::{Event, Key, Modifiers, PointerButton};
 use egui_kittest::kittest::Queryable;
 use gridcraft_engine::Session;
+use gridcraft_engine::core::CellRef;
+use gridcraft_ui_egui::grid;
 use serde_json::json;
 
 fn key(h: &mut common::Harness, key: Key, modifiers: Modifiers) {
@@ -10,6 +12,56 @@ fn key(h: &mut common::Harness, key: Key, modifiers: Modifiers) {
         h.input_mut().events.push(Event::Key { key, physical_key: Some(key), pressed, repeat: false, modifiers });
     }
     h.run_steps(3);
+}
+
+fn click_filter(h: &mut common::Harness, cell: &str) {
+    let app = h.state();
+    let sh = app.session.active().unwrap().wb.active().unwrap();
+    let geo = grid::Geo::new(sh, app.grid.rect.unwrap(), app.view().scroll);
+    let at = grid::filter_button_rect(&geo, sh, CellRef::parse(cell).unwrap()).center();
+    h.input_mut().events.push(Event::PointerMoved(at));
+    for pressed in [true, false] {
+        h.input_mut().events.push(Event::PointerButton { pos: at, button: PointerButton::Primary, pressed, modifiers: Modifiers::NONE });
+    }
+    h.run_steps(3);
+}
+
+#[test]
+fn switching_filter_columns_discards_old_edits_and_recomputes_eligible_choices() {
+    let mut session = Session::new();
+    session.new_workbook();
+    session
+        .execute(
+            "range.setValues",
+            json!({"range": "A1", "values": [
+                ["Company", "Job"], ["East", "Alpha"], ["East", "Beta"], ["West", "Other"]
+            ]}),
+        )
+        .unwrap();
+    session.execute("data.filter", json!({"range": "A1:B4"})).unwrap();
+    session.execute("selection.set", json!({"cell": "B1"})).unwrap();
+    let mut h = common::os_harness(session, egui::os::OperatingSystem::Windows);
+    key(&mut h, Key::ArrowDown, Modifiers::ALT);
+    h.get_by_label("Other").click();
+    h.run_steps(2);
+    assert_eq!(h.ctx.data(|d| d.get_temp::<String>(egui::Id::unique(("filter_search", 1u32)))).as_deref(), Some(""));
+
+    click_filter(&mut h, "A1");
+    assert_eq!(h.state().grid.filter_menu.map(|(col, _, _)| col), Some(0));
+    h.ctx.data(|d| {
+        assert!(d.get_temp::<Vec<(String, bool)>>(egui::Id::unique(("filter_sel", 1u32))).is_none(), "old checkbox edits must be discarded");
+        assert!(d.get_temp::<String>(egui::Id::unique(("filter_search", 1u32))).is_none(), "old search must be discarded");
+        assert!(d.get_temp::<Vec<egui::Id>>(egui::Id::unique(("filter_buttons", 1u32))).is_none(), "old button focus IDs must be discarded");
+    });
+    assert!(h.query_by_label("East").is_some(), "the new column's choices must remain available");
+    h.get_by_label("West").click();
+    h.run_steps(2);
+    h.get_by_label("Apply").click();
+    h.run_steps(3);
+    click_filter(&mut h, "B1");
+    assert!(h.query_by_label("Alpha").is_some());
+    assert!(h.query_by_label("Beta").is_some(), "eligible alternatives must remain available");
+    assert!(h.query_by_label("Other").is_none(), "the other column's new criterion must narrow the reopened list");
 }
 
 #[test]
