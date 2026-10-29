@@ -8,6 +8,33 @@ use gridcraft_engine::{
 use serde_json::json;
 
 #[test]
+fn slicer_criteria_outside_the_sheet_filters_columns_are_still_applied() {
+    let mut s = Session::new();
+    s.new_workbook();
+    s.execute("range.setValues", json!({"range": "A1", "values": [["Name"], ["one"], ["two"]]})).unwrap();
+    s.execute("range.setValues", json!({"range": "F1", "values": [["Region"], ["East"], ["West"]]})).unwrap();
+    s.execute("insert.table", json!({"range": "F1:F3", "name": "Other", "header": true})).unwrap();
+    s.execute("selection.set", json!({"cell": "A1"})).unwrap();
+    s.execute("data.filter", json!({"range": "A1:A3"})).unwrap();
+    let id = s.execute("insert.slicer", json!({"table": "Other", "column": "Region"})).unwrap()["slicer"].as_u64().unwrap();
+
+    s.execute("slicer.toggle", json!({"slicer": id, "value": "East"})).unwrap();
+    let sh = s.doc().unwrap().wb.active().unwrap();
+    assert_eq!(sh.autofilter.as_ref().unwrap().range.a1(), "A1:A3");
+    assert!(!sh.is_row_hidden(1));
+    assert!(sh.is_row_hidden(2));
+    assert_eq!(filter_values(&s.doc().unwrap().wb, 0, 0), vec![("one".into(), true)]);
+
+    s.execute("data.reapply", json!({})).unwrap();
+    assert!(s.doc().unwrap().wb.active().unwrap().is_row_hidden(2));
+    s.execute("slicer.clear", json!({"slicer": id})).unwrap();
+    let sh = s.doc().unwrap().wb.active().unwrap();
+    assert!(!sh.is_row_hidden(1));
+    assert!(!sh.is_row_hidden(2));
+    assert_eq!(filter_values(&s.doc().unwrap().wb, 0, 0), vec![("one".into(), true), ("two".into(), true)]);
+}
+
+#[test]
 fn choices_use_the_same_custom_and_statistical_criteria_as_filtering() {
     for (criterion, expected) in [
         (json!({"custom": {"op": ">=", "value": 20, "op2": "<", "value2": 100}}), vec!["mid", "upper"]),
