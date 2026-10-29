@@ -318,6 +318,25 @@ pub(super) fn reapply(s: &mut Session, _: &Json) -> Result<Json> {
 /// Distinct display values from rows matching the other columns' criteria.
 /// The current criterion only determines checkboxes, so its unchecked alternatives stay available.
 pub fn filter_values(wb: &Workbook, sheet: usize, col: u32) -> Vec<(String, bool)> {
+    column_filter_values(wb, sheet, col, true)
+}
+
+/// Applies edited eligible choices to the whole column's checkbox state, retaining choices hidden by other filters.
+pub fn filter_selection(wb: &Workbook, sheet: usize, col: u32, choices: &[(String, bool)]) -> Vec<(String, bool)> {
+    let mut edited = std::collections::BTreeMap::new();
+    for (value, on) in choices {
+        *edited.entry(value.to_ascii_lowercase()).or_insert(false) |= *on;
+    }
+    let mut selection = column_filter_values(wb, sheet, col, false);
+    for (value, on) in &mut selection {
+        if let Some(checked) = edited.get(&value.to_ascii_lowercase()) {
+            *on = *checked;
+        }
+    }
+    selection
+}
+
+fn column_filter_values(wb: &Workbook, sheet: usize, col: u32, eligible_only: bool) -> Vec<(String, bool)> {
     let Some(sh) = wb.sheet(sheet) else { return vec![] };
     let Some(af) = &sh.autofilter else { return vec![] };
     if col < af.range.start.col || col > af.range.end.col {
@@ -325,10 +344,10 @@ pub fn filter_values(wb: &Workbook, sheet: usize, col: u32) -> Vec<(String, bool
     }
     let off = col - af.range.start.col;
     let selected: Option<&FilterCriterion> = af.criteria.iter().find(|(o, _)| *o == off).map(|(_, c)| c);
-    let col_stats = filter_stats(sh, af, Some(off));
+    let col_stats = if eligible_only { filter_stats(sh, af, Some(off)) } else { Default::default() };
     let mut seen = std::collections::BTreeMap::new();
     for row in af.range.start.row.saturating_add(1)..=af.range.end.row.min(af.range.start.row.saturating_add(1_000_000)) {
-        if !filter_row_matches(wb, sh, af, row, &col_stats, Some(off)) {
+        if eligible_only && !filter_row_matches(wb, sh, af, row, &col_stats, Some(off)) {
             continue;
         }
         let c = CellRef::new(row, col);
