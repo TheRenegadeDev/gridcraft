@@ -15,9 +15,17 @@ use super::{Dialog, Field, Json, Key, Map, RefPick, SheetApp, json, save_changes
 
 /// Builds the command params from form values for dialogs that need translation.
 /// The parameters OK sends to the dialog's command: its field values, reshaped per dialog.
+/// Unchanged hyperlink display text is omitted so its number or formula stays intact.
 pub(crate) fn build_params(d: &Dialog) -> Json {
     let mut v = Json::Object(d.values.clone());
     match d.name.as_str() {
+        "insertLink" => {
+            if d.original_link_text.as_deref().is_some_and(|text| d.values.get("text").and_then(Json::as_str) == Some(text))
+                && let Some(m) = v.as_object_mut()
+            {
+                m.remove("text");
+            }
+        }
         "advancedFilter" => {
             if let Some(m) = v.as_object_mut() {
                 m.remove("action");
@@ -105,7 +113,10 @@ pub(crate) fn build_params(d: &Dialog) -> Json {
 /// Takes and draws the active dialog, dispatches its body by name, consumes picture-inbox results, runs OK/confirm commands, handles Esc/close and restores the back-dialog stack.
 pub fn show(app: &mut SheetApp, ctx: &egui::Context) {
     let Some(mut d) = app.dialog.take() else { return };
-    if d.name == "saveChanges" && (app.macros.question.is_some() || app.message.is_some()) {
+    let covered = app.macros.question.is_some() || app.message.is_some();
+    #[cfg(not(target_arch = "wasm32"))]
+    let covered = covered || crate::updates_ui::prompt_shown(app);
+    if d.name == "saveChanges" && covered {
         d.save_changes_armed = None;
         d.save_changes_pending = None;
         app.dialog = Some(d);

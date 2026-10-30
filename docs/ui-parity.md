@@ -1,6 +1,6 @@
 # UI parity
 
-> **Last reviewed:** 2026-10-10 · **Last updated:** 2026-10-29 · **Change:** minor (single-key answers in Save Changes; AutoSum over a selected row puts its total to the right; earlier: macro interface on the Automate tab; ribbon catalog count 276 / 292) · **Target:** Microsoft Excel (Microsoft 365), Excel for Mac 16.113.4
+> **Last reviewed:** 2026-10-10 · **Last updated:** 2026-10-30 · **Change:** minor (Save Changes keyboard answers and modal ownership; earlier: formula-reference Ctrl+arrow, hyperlink editing, AutoSum selected-row totals and macro interface; ribbon catalog count 276 / 292) · **Target:** Microsoft Excel (Microsoft 365), Excel for Mac 16.113.4
 
 Interaction, controls and feel, against Excel. Part of [target-app-parity.md](target-app-parity.md).
 **UI/UX fidelity: ~55% ready, 50–80 h** (estimated). Ribbon command coverage is measured
@@ -107,7 +107,7 @@ otherwise. Number-format and border keys match the physical key (Ctrl+Shift+4, w
 | Y / N / Esc in Save Changes | same | Save / Don't Save / Cancel | added (#2572); Y/N require no modifiers and answer on release; Save/Don't Save waits for all held Y/N keys, including mouse/key mixtures; native and browser repeats cannot arm a question after focus switches or returns; a covering macro question or message owns the keys and cancels any armed/pending workbook answer; focus loss cancels pending answers, Esc cancels immediately and overrides other answers in the same input batch; a cancelled or failed save keeps the workbook open |
 | Ctrl+F, Ctrl+H, Ctrl+G, Ctrl+K, Ctrl+T | Cmd (Ctrl+H) | find, replace, go to, hyperlink, table | present |
 | Ctrl+D, Ctrl+R, Ctrl+E, Ctrl+1, Ctrl+9 / 0, Ctrl+Shift+9 / 0 | Cmd (Ctrl+E on Mac: see below) | fill down/right, Flash Fill, Format Cells, hide/unhide | present |
-| Ctrl+- , Ctrl+Shift+= | Cmd | Delete / Insert cells dialog | present |
+| Ctrl+- , Ctrl+Shift+= , Ctrl+numpad + | Cmd | Delete / Insert cells dialog | present |
 | Ctrl+; , Ctrl+` | Control+; | current date, show formulas | present (Mac Control+; added) |
 | Arrows, Shift / Ctrl / Ctrl+Shift+arrows, Home, Ctrl+Home / End, Page Up / Down, Ctrl+Page Up / Down | Cmd+arrows | navigation and extension | present |
 | Tab, Shift+Tab, Enter, Shift+Enter, Ctrl+Space, Shift+Space, Delete, Esc | same | entry and selection | present |
@@ -153,6 +153,10 @@ a character (e.g. Ctrl+Alt+A for `ä`) never trigger a shortcut, Ctrl+letter one
 
 ## Dialogs
 
+Insert Hyperlink loads an existing cell link's address, display text and ScreenTip for editing
+(#2876). Keeping the display text unchanged preserves the cell's number or formula; Cancel
+keeps the original link and an edit can be undone in one step.
+
 Format Cells, Insert Function/Formula Builder, Find and Replace, Go To and Go To Special, Sort,
 Name Manager, Data Validation, Paste Special, Conditional Formatting manager, Page Setup, Goal
 Seek, Scenario Manager, Data Analysis, Forecast Sheet, Macros (macros, Automate scripts and a
@@ -191,8 +195,12 @@ scrollbar bugs 2–4 · pixel/feel pass against observed Excel 7–12.
 
 | Date | Change | Summary |
 |---|---|---|
+| 2026-10-30 | minor | Save Changes yields its keyboard answers to the desktop update prompt, clears armed/pending answers while covered and ignores stale releases even in the frame that Escape or Later dismisses the update prompt (#2572) |
+| 2026-10-29 | minor | Formula pointing from the keyboard: Ctrl+arrow (⌘arrow) moves the pointed cell to the edge of its data and Ctrl+Shift+arrow (⌘⇧arrow) extends the pointed range there, as the same keys move and extend the selection, so typing `=COUNTIF(`, clicking the top of a column and pressing ⌘⇧↓ points at the whole column of data; the keys used to move or extend by one cell. A range reaching the sheet edge is written as whole columns or rows (`A:B`). The editor reads the modifiers of the arrow's own key event, so a keystroke pressed and released within one frame (a control client's `ui.key`, an automation tool) keeps its Shift and Ctrl |
+| 2026-10-29 | minor | Insert Hyperlink opens with an existing link's address, display text and ScreenTip (#2876). An address-only edit preserves the cell's content and formula; Cancel leaves the link unchanged, and Undo restores the edit |
 | 2026-10-29 | minor | Save Changes yields Y/N/Esc to a covering macro question or message, forgets pending answers while covered and accepts fresh input after it closes (#2572) |
 | 2026-10-28 | minor | Save Changes accepts unmodified Y (Save) and N (Don't Save) on release through the existing button actions; Esc cancels immediately and overrides keyboard/button answers in the same input batch. Save/Don't Save waits in its original question until all Y/N keys are up, including mouse/keyboard mixtures. The pinned X11 backend retains the ordered focus keymap; adapters preserve native/browser repeat identity; fresh presses after missing releases remain usable. Focus loss cancels pending answers even without a key release. Cancelling Save As or a failed save keeps the workbook open (#2572) |
+| 2026-10-27 | minor | Ctrl with the numpad's + inserts rows, columns or cells as Ctrl+Shift+= does, as in Excel; it did nothing because the numpad key arrives without Shift |
 | 2026-10-25 | minor | AutoSum (Alt+=, Home › AutoSum) over a selected row puts its total to the right of the row, or in its last cell when that is empty, as in Excel; it wrote a one-cell total under each cell. A selection's empty last column takes each row's total and its empty last row each column's, with the block's total in the corner when both are empty |
 | 2026-10-25 | minor | Paste Name lays out only the names in view, so a workbook with thousands of names opens it at once; the arrow keys still scroll the chosen name into view. Go To matches a `Sheet2!Name` reference and hides a workbook name behind the active sheet's own name in any case and script (`Größe` = `GRÖSSE`), as formulas do. The two Page Layout view rows are one; the 0.7 in side margin used when Align with Page Margins is off is marked unverified |
 | 2026-10-24 | minor | Macro step editor: step list with breakpoints, drag to reorder and a command picker, an inspector with reference boxes, a debug bar and grid overlays |
