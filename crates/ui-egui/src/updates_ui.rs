@@ -2,6 +2,7 @@
 //! offers the new release: Update and Restart (direct self-update), Download or Later. The flow
 //! itself is `craft_update::updater::Updater`.
 
+use craft_update::CheckResultResponse;
 use craft_update::updater::{Action, Status, Updater};
 
 use crate::SheetApp;
@@ -14,13 +15,15 @@ pub(crate) struct Runtime {
     startup: bool,
     /// Help ▸ Check for Updates… was chosen; the next `tick` starts it.
     manual: bool,
-    /// The prompt covered this UI pass, including the pass that dismisses it.
+    /// An update card covered this UI pass, including the pass that dismisses it.
     prompt_shown: bool,
+    /// The result dialog of a requested check is showing.
+    result_open: bool,
 }
 
 impl Default for Runtime {
     fn default() -> Self {
-        Self { updater: Updater::new(&crate::UPDATE_APP, VERSION), startup: false, manual: false, prompt_shown: false }
+        Self { updater: Updater::new(&crate::UPDATE_APP, VERSION), startup: false, manual: false, prompt_shown: false, result_open: false }
     }
 }
 
@@ -37,23 +40,18 @@ pub(crate) fn tick(app: &mut SheetApp, ctx: &egui::Context) {
     let rt = &mut app.updates_rt;
     if std::mem::take(&mut rt.manual) {
         rt.updater.check_now(ctx);
+        rt.result_open = true;
     } else if rt.startup {
         rt.updater.check_at_start(ctx);
     }
     rt.updater.tick(ctx);
-    let lang = app.ui.language;
-    let outcome = match rt.updater.status() {
-        Status::UpToDate => Some(lang.tr("GridCraft {version} is up to date.").replace("{version}", VERSION)),
-        Status::Failed(e) => Some(lang.tr("Could not check for updates: {error}").replace("{error}", e)),
-        Status::Idle | Status::Checking => None,
-    };
-    if let Some(message) = outcome {
-        rt.updater.dismiss_status();
-        app.message = Some(("GridCraft".into(), message));
+    // A requested check that found a release leaves the status idle and the prompt opens.
+    if matches!(rt.updater.status(), Status::Idle) {
+        rt.result_open = false;
     }
 }
 
-/// Whether the updater owns this pass, even if Escape or Later just closed its prompt.
+/// Whether an update card owns this pass, even if it was just dismissed.
 pub(crate) fn prompt_shown(app: &SheetApp) -> bool {
     app.updates_rt.prompt_shown
 }
@@ -61,7 +59,8 @@ pub(crate) fn prompt_shown(app: &SheetApp) -> bool {
 pub(crate) fn show(app: &mut SheetApp, ctx: &egui::Context) {
     // The restart helper is scheduled before the app closes, so no update starts over unsaved work.
     let clean = !app.session.documents().iter().any(|d| d.is_dirty());
-    app.updates_rt.prompt_shown = app.updates_rt.updater.prompt_open();
+    app.updates_rt.prompt_shown =
+        app.updates_rt.updater.prompt_open() || (app.updates_rt.result_open && !matches!(app.updates_rt.updater.status(), Status::Idle));
     match app.updates_rt.updater.show_if(ctx, clean) {
         Action::OpenUrl(url) => {
             if let Some(open) = &app.services.open_url {
@@ -72,6 +71,17 @@ pub(crate) fn show(app: &mut SheetApp, ctx: &egui::Context) {
         // process has exited.
         Action::Close => ctx.send_viewport_cmd(egui::ViewportCommand::Close),
         Action::None => {}
+    }
+    if app.updates_rt.result_open {
+        let rt = &mut app.updates_rt;
+        match craft_update::CheckResultDialog::new(&crate::UPDATE_APP, VERSION).show(ctx, rt.updater.status()) {
+            CheckResultResponse::Close => {
+                rt.updater.dismiss_status();
+                rt.result_open = false;
+            }
+            CheckResultResponse::CheckAgain => rt.updater.check_now(ctx),
+            CheckResultResponse::None => {}
+        }
     }
 }
 
