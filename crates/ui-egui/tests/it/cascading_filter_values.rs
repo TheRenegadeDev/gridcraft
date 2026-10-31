@@ -120,6 +120,51 @@ fn applying_eligible_choices_preserves_values_and_blanks_hidden_by_another_filte
 }
 
 #[test]
+fn search_apply_excludes_hidden_nonmatches_and_keeps_hidden_matches() {
+    for click in [false, true] {
+        for beta in [false, true] {
+            let mut session = Session::new();
+            session.new_workbook();
+            let mut values = vec![json!(["Company", "Job"]), json!(["East", "Alpha"])];
+            if beta {
+                values.push(json!(["East", "Beta"]));
+            }
+            values.extend([json!(["West", "Alphonse"]), json!(["West", "Other"]), json!(["West", null])]);
+            let last = values.len() - 1;
+            session.execute("range.setValues", json!({"range": "A1", "values": values})).unwrap();
+            session.execute("data.filter", json!({"range": format!("A1:B{}", last + 1)})).unwrap();
+            session.execute("data.filterBy", json!({"column": "A", "values": ["East"]})).unwrap();
+            session.execute("selection.set", json!({"cell": "B1"})).unwrap();
+            let mut h = common::os_harness(session, egui::os::OperatingSystem::Windows);
+            key(&mut h, Key::ArrowDown, Modifiers::ALT);
+            assert!(h.query_by_label("Other").is_none());
+            assert!(h.query_by_label("Alphonse").is_none());
+            h.input_mut().events.push(Event::Text("Alph".into()));
+            h.run_steps(2);
+            assert_eq!(h.ctx.data(|d| d.get_temp::<String>(egui::Id::unique(("filter_search", 1u32)))).as_deref(), Some("Alph"));
+            assert!(h.query_by_label("Alpha").is_some());
+            assert!(h.query_by_label("Beta").is_none());
+            if click {
+                h.get_by_label("Apply").click();
+                h.run_steps(3);
+            } else {
+                key(&mut h, Key::Enter, Modifiers::NONE);
+            }
+            assert!(h.state().grid.filter_menu.is_none());
+            h.state_mut().run("data.filterBy", json!({"column": "A", "clear": true})).unwrap();
+            let sh = h.state().session.active().unwrap().wb.active().unwrap();
+            assert!(!sh.is_row_hidden(1), "Alpha must remain selected");
+            assert!(!sh.is_row_hidden((last - 2) as u32), "hidden Alphonse must still match the search");
+            assert!(sh.is_row_hidden((last - 1) as u32), "hidden Other must be excluded: click={click}, beta={beta}");
+            assert!(sh.is_row_hidden(last as u32), "hidden blanks do not match the search");
+            if beta {
+                assert!(sh.is_row_hidden(2), "eligible Beta does not match the search");
+            }
+        }
+    }
+}
+
+#[test]
 fn dropdown_can_change_and_clear_a_column_while_another_filter_stays_active() {
     for table in [false, true] {
         let mut session = Session::new();

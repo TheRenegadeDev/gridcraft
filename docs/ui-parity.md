@@ -1,6 +1,6 @@
 # UI parity
 
-> **Last reviewed:** 2026-10-10 · **Last updated:** 2026-10-30 · **Change:** minor (cascading AutoFilter choices and preserved selections; earlier: formula-reference Ctrl+arrow, hyperlink editing, AutoSum selected-row totals and macro interface; ribbon catalog count 276 / 292) · **Target:** Microsoft Excel (Microsoft 365), Excel for Mac 16.113.4
+> **Last reviewed:** 2026-10-10 · **Last updated:** 2026-10-30 · **Change:** minor (cascading AutoFilter choices and preserved selections; checkbox cells print as boxes; earlier: formula-reference Ctrl+arrow, hyperlink editing, AutoSum selected-row totals and macro interface; ribbon catalog count 276 / 292) · **Target:** Microsoft Excel (Microsoft 365), Excel for Mac 16.113.4
 
 Interaction, controls and feel, against Excel. Part of [target-app-parity.md](target-app-parity.md).
 **UI/UX fidelity: ~55% ready, 50–80 h** (estimated). Ribbon command coverage is measured
@@ -60,7 +60,7 @@ this logic, with one undo step.
 | Point mode (click/drag/arrow references), reference colouring, F4 | done |
 | AutoComplete in columns, function autocomplete and argument tips | done; cell helpers clip to the worksheet and hide when the editor scrolls out (#200) |
 | Header resize and double-click AutoFit | done (#42, #88 for header dividers) |
-| AutoFilter value dropdowns | Choices come from rows satisfying the other columns' active criteria; the current column only determines checkbox state, including (Blanks), so its filter can be changed or cleared (#2641). Apply preserves selected and excluded values and blanks absent from the narrowed list; Clear Filter clears the whole column. Custom comparisons, Top 10, average and color criteria use the same evaluator as row filtering. Top 10 / average thresholds still use the original range. Manual hidden rows do not restrict choices; imported icon criteria remain unevaluated. |
+| AutoFilter value dropdowns | Choices come from rows satisfying the other columns' active criteria; the current column only determines checkbox state, including (Blanks), so its filter can be changed or cleared (#2641). Without a search, Apply preserves selected and excluded values and blanks absent from the narrowed list. With a search, Apply excludes nonmatches throughout the column, including values hidden by another filter. Clear Filter clears the whole column. Custom comparisons, Top 10, average and color criteria use the same evaluator as row filtering. Top 10 / average thresholds still use the original range. Manual hidden rows do not restrict choices; imported icon criteria remain unevaluated. |
 | Data › Advanced Filter | dialog offers in-place or copy-to filtering, list and optional criteria ranges, and unique records; Alt+A,Q opens it (#1622). The engine's copy-to path clears only the result footprint and rejects worksheet overflow (#1031). |
 | Outline symbols for grouped rows / columns (band beside the headers, brackets, − / +, level buttons 1…n+1) | done (#373): clicks run `data.hideDetail` / `data.showDetail` / `data.showLevels`, frozen panes and right-to-left sheets included; Data › Outline › Settings (`data.outlineSettings`) puts summary rows above and summary columns left of their detail, saved as `outlinePr` (the dialog's Automatic styles check box and Apply Styles button are missing), View › Show Outline Symbols (Ctrl+8) hides the bands and is saved with the sheet, and a block of cells still groups rows without the Rows / Columns dialog |
 | Reorder selected whole columns by dragging their headers | done (10-11) |
@@ -102,7 +102,8 @@ The existing one-million-data-row enumeration limit and value sorting remain unc
 This changes the population behind the pending row-count work (#1737, and its stacked Only
 button #1741): a future count beside a choice should count eligible rows satisfying the other
 columns, including rows rejected by the current column. It must not count the whole original
-range or just currently visible rows. Search narrows the displayed choices, not that population.
+range or just currently visible rows. Search narrows the displayed choices, not that population;
+Apply with a search excludes nonmatching values even when another filter hides them.
 These PRs are not incorporated here. Date grouping (#1509) should group this same eligible
 population. Table filter activation / roundtrip ownership changes remain in #2506; enumeration
 reads the active sheet AutoFilter used by the current table dropdown without changing criteria,
@@ -211,9 +212,10 @@ scrollbar bugs 2–4 · pixel/feel pass against observed Excel 7–12.
 
 | Date | Change | Summary |
 |---|---|---|
+| 2026-10-30 | minor | AutoFilter choices cascade across other columns while retaining current-column alternatives and blanks (#2641); Apply without search preserves selected and excluded values and blanks hidden by other filters; searched Apply excludes hidden nonmatches while retaining hidden matches; document pending counts, date grouping and table roundtrip integration; retain slicer row filtering when its criterion is outside the sheet filter columns |
+| 2026-10-30 | minor | Checkbox cells print and export to PDF as boxes, as on screen: unchecked white with a grey outline, checked green with a white tick (#2972). They printed their value as TRUE or FALSE; other values in a checkbox cell still print as text |
 | 2026-10-29 | minor | Formula pointing from the keyboard: Ctrl+arrow (⌘arrow) moves the pointed cell to the edge of its data and Ctrl+Shift+arrow (⌘⇧arrow) extends the pointed range there, as the same keys move and extend the selection, so typing `=COUNTIF(`, clicking the top of a column and pressing ⌘⇧↓ points at the whole column of data; the keys used to move or extend by one cell. A range reaching the sheet edge is written as whole columns or rows (`A:B`). The editor reads the modifiers of the arrow's own key event, so a keystroke pressed and released within one frame (a control client's `ui.key`, an automation tool) keeps its Shift and Ctrl |
 | 2026-10-29 | minor | Insert Hyperlink opens with an existing link's address, display text and ScreenTip (#2876). An address-only edit preserves the cell's content and formula; Cancel leaves the link unchanged, and Undo restores the edit |
-| 2026-10-28 | minor | AutoFilter choices cascade across other columns while retaining current-column alternatives and blanks (#2641); Apply preserves selected and excluded values and blanks hidden by other filters; document pending counts, date grouping and table roundtrip integration; retain slicer row filtering when its criterion is outside the sheet filter columns |
 | 2026-10-27 | minor | Ctrl with the numpad's + inserts rows, columns or cells as Ctrl+Shift+= does, as in Excel; it did nothing because the numpad key arrives without Shift |
 | 2026-10-25 | minor | AutoSum (Alt+=, Home › AutoSum) over a selected row puts its total to the right of the row, or in its last cell when that is empty, as in Excel; it wrote a one-cell total under each cell. A selection's empty last column takes each row's total and its empty last row each column's, with the block's total in the corner when both are empty |
 | 2026-10-25 | minor | Paste Name lays out only the names in view, so a workbook with thousands of names opens it at once; the arrow keys still scroll the chosen name into view. Go To matches a `Sheet2!Name` reference and hides a workbook name behind the active sheet's own name in any case and script (`Größe` = `GRÖSSE`), as formulas do. The two Page Layout view rows are one; the 0.7 in side margin used when Align with Page Margins is off is marked unverified |
